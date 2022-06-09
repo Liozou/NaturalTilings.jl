@@ -1,7 +1,9 @@
 module NaturalTilings
 
 using Graphs, StaticArrays, PeriodicGraphs, PeriodicGraphEmbeddings
-using PeriodicGraphs: EdgeDict, DistanceRecord, IterativeGaussianEliminationDecomposition, strong_erings
+using PeriodicGraphs: EdgeDict, DistanceRecord, IterativeGaussianEliminationDecomposition,
+                      VertexPair, strong_erings, normalize_cycle!, retrieve_track!,
+                      convert_to_ering!, gaussian_elimination!
 using LinearAlgebra: norm, dot
 
 export Tiling, tilingof
@@ -45,6 +47,12 @@ struct Tiling{D}
     end
 end
 
+"""
+    countconsecutiveunique(list::Vector)
+
+Return the list of pair `(count, item)` where `count` is the number of times `item` appears
+consecutively at this point of the `list`.
+"""
 function countconsecutiveunique(l::Vector{T}) where T
     ret = Tuple{Int,T}[]
     isempty(l) && return ret
@@ -107,7 +115,7 @@ function TilingAroundCycle{D}(i) where D
     encountered = Set{PeriodicVertex{D}}((PeriodicVertex{D}(i),))
     Q = [(PeriodicVertex{D}(i), 0)]
     tiles = Vector{PeriodicVertex{D}}[]
-    return TilingAroundCycle{D}(gauss, encountered, Q, 1, tiles)
+    return TilingAroundCycle{D}(gauss, encountered, Q, Ref(1), tiles)
 end
 
 function cycle_at_pos(tiling::Tiling{D}, u::PeriodicVertex{D}) where D
@@ -120,7 +128,7 @@ end
 
 function explore_around_cycle!(tac::TilingAroundCycle{D}, tiling::Tiling{D}, untilfirstfound=false) where D
     Q = tac.Q
-    restart = Q.restart[]
+    restart = tac.restart[]
     maxdist = untilfirstfound ? typemax(Int) : isone(restart) ? 3 : last(Q[restart]) + 1
     newrestart = restart
     for (u, dist) in Iterators.rest(Q, restart)
@@ -145,6 +153,13 @@ function explore_around_cycle!(tac::TilingAroundCycle{D}, tiling::Tiling{D}, unt
     nothing
 end
 
+"""
+    unique_edges(tile::Vector{PeriodicVertex{D}}, tiling::Tiling{D}) where D
+
+Return the list of sorted edges defining the border of a `tile`.
+
+Return an empty list if one of the edges appears in three or more rings of the `tile`.
+"""
 function unique_edges(tile::Vector{PeriodicVertex{D}}, tiling::Tiling{D}) where D
     doubleedges = VertexPair{D}[]
     for t in tile
@@ -167,6 +182,14 @@ function unique_edges(tile::Vector{PeriodicVertex{D}}, tiling::Tiling{D}) where 
     return doubleedges
 end
 
+"""
+    canonical_tile!(tiling::Tiling{D}, tile::Vector{PeriodicVertex{D}}) where D
+
+From a `tile` given as a list of its rings, return the position of the tile in `tiling`
+and update `tiling` to add the new tile if it is absent.
+
+The input `tile` may also be modified by this function.
+"""
 function canonical_tile!(tiling::Tiling{D}, tile::Vector{PeriodicVertex{D}}) where D
     normalized, ofs = normalize_cycle!(tile)
     uniqueedges = unique_edges(normalized, tiling)
@@ -312,7 +335,12 @@ function tilingof(g::PeriodicGraph{D}, depth=15, symmetries::AbstractSymmetryGro
     _rings, symms, erings, kp = strong_erings(g, depth, symmetries, dist)
     rings = Vector{PeriodicVertex{D}}[[reverse_hash_position(x, g) for x in r] for r in _rings]
     tiling = Tiling{D}(rings, erings, kp)
-    exploration = [TilingAroundCycle{D}(i) for i in 1:n]
+    exploration = [TilingAroundCycle{D}(i) for i in 1:length(_rings)]
+    missing2tiles = trues(length(_rings))
+    while true
+        # increase exploration incrementally
+    end
+
     for i in 1:length(erings)
         last(tiling.tilesofring[i]).v == 0 || continue
         ts = tiles_including_cycle(tiling, i)
