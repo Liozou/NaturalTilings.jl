@@ -79,9 +79,10 @@ function Base.show(io::IO, ::MIME"text/plain", t::Tiling{D}) where D
     sort!(tiles)
     sort!(tiles; by=length)
     ctiles = countconsecutiveunique([countconsecutiveunique(t) for t in tiles])
+    d = gcd([c for (c,_) in ctiles])
     for (i, (c, tile)) in enumerate(ctiles)
         i == 1 || print(io, " + ")
-        c == 1 || print(io, c)
+        c == d || print(io, div(c, d))
         print(io, '[')
         for (j, (c2, x)) in enumerate(tile)
             j == 1 || print(io, ", ")
@@ -91,6 +92,9 @@ function Base.show(io::IO, ::MIME"text/plain", t::Tiling{D}) where D
             end
         end
         print(io, ']')
+    end
+    if d != 1
+        print(io, " (×", d, ')')
     end
     nothing
 end
@@ -368,7 +372,7 @@ function tilingof(g::PeriodicGraph{D}, depth::Integer=10, symmetries::AbstractSy
     num_tiles = 0
     num_iter = 0
     known_htiles = Set{Vector{Int}}()
-    while !isempty(missing2tiles) && num_iter < 30
+    while !isempty(missing2tiles) && num_iter < 5
         num_iter += 1
         new_rtiles = Vector{PeriodicVertex{D}}[]
         for e in missing2tiles
@@ -396,7 +400,7 @@ function tilingof(g::PeriodicGraph{D}, depth::Integer=10, symmetries::AbstractSy
         for i in new_idx:num_tiles
             for (v, _) in tiling.tiles[i]
                 if tilecounter[v] == 2
-                    # @error "Ring $v (a.k.a. $(tiling.rings[v])) limits more than 2 tiles."
+                    @info "Ring $v joins more than 2 tiles."
                 end
                 tilecounter[v] += 1
             end
