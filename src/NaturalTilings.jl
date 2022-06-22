@@ -7,6 +7,7 @@ using PeriodicGraphs: EdgeDict, DistanceRecord, IterativeGaussianEliminationDeco
                       IterativeGaussianEliminationLength
 using LinearAlgebra: norm, dot
 
+include("types.jl")
 include("tiling.jl")
 include("io.jl")
 
