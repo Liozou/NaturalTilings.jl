@@ -8,6 +8,7 @@ using PeriodicGraphs: EdgeDict, DistanceRecord, IterativeGaussianEliminationDeco
 using LinearAlgebra: norm, dot
 
 include("types.jl")
+include("phantomedges.jl")
 include("tiling.jl")
 include("io.jl")
 
