@@ -14,7 +14,7 @@ function unique_edges(tile::Vector{PeriodicVertex{D}}, tiling::Tiling{D}) where 
         lst = PeriodicVertex{D}(last(ring).v, last(ring).ofs .+ t.ofs)
         for r in ring
             x = PeriodicVertex{D}(r.v, r.ofs .+ t.ofs)
-            push!(doubleedges, get!(tiling.kp, minmax(lst, x)))
+            push!(doubleedges, tiling.kp[minmax(lst, x)])
             lst = x
         end
     end
