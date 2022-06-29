@@ -195,10 +195,12 @@ end
 function tilingof(g::PeriodicGraph{D}, depth::Integer=10, symmetries::AbstractSymmetryGroup=NoSymmetryGroup(g), dist::DistanceRecord=DistanceRecord(g,depth)) where D
     _rings, symms, erings, kp = strong_erings(g, depth, symmetries, dist)
     rings = Vector{PeriodicVertex{D}}[[reverse_hash_position(x, g) for x in r] for r in _rings]
+    max_realedge = add_phantomedges!(erings, rings, kp)
+    @show max_realedge
     tiling = Tiling{D}(rings, erings, kp)
     # TODO: include detect_ring_crossing
     uniquesymms = unique(symms)
-    m = length(_rings)
+    m = length(rings)
     exploration = [TilingAroundCycle{D}(u) for u in uniquesymms]
     missing2tiles = collect(1:length(exploration))
     tilecounter = zeros(Int, m)
@@ -235,7 +237,7 @@ function tilingof(g::PeriodicGraph{D}, depth::Integer=10, symmetries::AbstractSy
         for i in new_idx:num_tiles
             for (v, _) in tiling.tiles[i]
                 if tilecounter[v] == 2
-                    @info "Ring $v joins more than 2 tiles."
+                    @error "Ring $v joins more than 2 tiles."
                 end
                 tilecounter[v] += 1
             end

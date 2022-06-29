@@ -39,26 +39,44 @@ struct ERingAttributions{D}
     end
 end
 
-struct ERingIncluding{D} <: AbstractVector{Vector{Int}}
+struct ERingIncludingExcluding{D} <: AbstractVector{Vector{Int}}
     eras::ERingAttributions{D}
     i::Int
     ofs::SVector{D,Int}
+    encountered::BitVector
+    min::Int
     buffer::Vector{Int}
-    ERingIncluding(eras::ERingAttributions{D}, i, ofs) where {D} = new{D}(eras, i, ofs, Int[])
+    function ERingIncludingExcluding(eras::ERingAttributions{D}, i, ofs, encountered, min) where {D}
+        new{D}(eras, i, ofs, encountered, min, Int[])
+    end
 end
 
-function find_ofs_ref(eri::ERingIncluding{D}, i::Int) where {D}
+function find_ofs_ref(eri::ERingIncludingExcluding{D}, i::Int) where {D}
     newring_idx, idx = eri.eras.attrs[eri.i][i]
     newering = eri.eras.erings[newring_idx]
     k = newering[idx]
-    k == i && return newering, true, zero(SVector{D,Int})
+    k == i && return newering, newring_idx, true, zero(SVector{D,Int})
     kp = eri.eras.kp
     (_, ofs_ref2), = kp[k]
-    return newering, false, eri.ofs .- ofs_ref2
+    return newering, newring_idx, false, eri.ofs .- ofs_ref2
 end
 
-function Base.getindex(eri::ERingIncluding{D}, i::Int) where {D}
-    newering, skip, ofs_ref = find_ofs_ref(eri, i)
+function Base.getindex(eri::ERingIncludingExcluding{D}, i::Int) where {D}
+    newering, idx, skip, ofs_ref = find_ofs_ref(eri, i)
+    if idx < eri.min # only inspect each pair of rings once by asserting their order
+        empty!(eri.buffer)
+        return eri.buffer
+    end
+    m = length(eri.eras.erings)
+    h = hash_position(PeriodicVertex(idx, ofs_ref), m)
+    h > length(eri.encountered) && append!(eri.encountered, false for _ in 1:(h-length(eri.encountered)))
+    if eri.encountered[h]
+        # if this particular cycle has already been encountered, do not yield it again to
+        # avoid duplicating computations: instead, return an empty cycle.
+        empty!(eri.buffer)
+        return eri.buffer
+    end
+    eri.encountered[h] = true
     n = length(newering)
     resize!(eri.buffer, n)
     if skip
@@ -73,13 +91,13 @@ function Base.getindex(eri::ERingIncluding{D}, i::Int) where {D}
     end
     return eri.buffer
 end
-Base.size(eri::ERingIncluding) = size(eri.eras.attrs[eri.i])
-Base.IndexStyle(::Type{ERingIncluding{D}}) where {D} = Base.IndexLinear()
+Base.size(eri::ERingIncludingExcluding) = size(eri.eras.attrs[eri.i])
+Base.IndexStyle(::Type{ERingIncludingExcluding{D}}) where {D} = Base.IndexLinear()
 
-Base.@propagate_inbounds function Base.getindex(eras::ERingAttributions, i::Integer)
+Base.@propagate_inbounds function erings_including_excluding(eras::ERingAttributions, i, encountered, min)
     j, ofs = ref_vertexpair(eras.kp, i)
     @boundscheck checkbounds(eras.attrs, j)
-    ERingIncluding(eras, j, ofs)
+    ERingIncludingExcluding(eras, j, ofs, encountered, min)
 end
 
 
@@ -93,7 +111,7 @@ function canonical_ering!(ering::Vector{Int}, kp::EdgeDict{D}) where D
         end
         sort!(ering)
     end
-    nothing
+    ofs
 end
 
 function find_common_vertex(x, y, kp)
@@ -103,7 +121,13 @@ function find_common_vertex(x, y, kp)
     return xb
 end
 
-function identify_junction(r1::Vector{PeriodicVertex{D}}, r2) where D
+"""
+    identify_junction(r1::Vector{PeriodicVertex{D}}, r2, r3) where D
+
+Given two rings `r1` and `r2` and their sum `r3`, a ring smaller or equal in size, find the
+positions of the two junctions, that is the two vertices common to all three rings.
+"""
+function identify_junction(r1::Vector{PeriodicVertex{D}}, r2, r3) where D
     len1 = length(r1)
     len2 = length(r2)
     start1 = 1
@@ -113,75 +137,142 @@ function identify_junction(r1::Vector{PeriodicVertex{D}}, r2) where D
         start2 = _start2
     else
         start1 = 1 + length(r1)÷2
-        _start2 = findfirst(==(r1[start1]), r2)
-        if _start2 isa Nothing
-            @show r1
-            @show r2
-        end
-        start2 = _start2
+        start2 = findfirst(==(r1[start1]), r2)
     end
     after1 = r1[start1+1]
     after2 = r2[mod1(start2+1, len2)]
-    before2 = r2[mod1(start2-1, len2)]
-    direct = signbit(after1 == after2 || after1 != before2)
-    ia = mod1(start1 + 1, len1)
-    ja = mod1(start2 + direct, len2)
-    while r1[ia] == r2[ja]
-        ia = mod1(ia + 1, len1)
-        ja = mod1(ja + direct, len2)
+    direct = 2*(after1 == after2 || r1[mod1(start1-1, len1)] == r2[mod1(start2-1, len2)])-1
+    ia1 = mod1(start1 + 1, len1)
+    ia2 = mod1(start2 + direct, len2)
+    ib1 = mod1(start1 - 1, len1)
+    ib2 = mod1(start2 - direct, len2)
+    while r1[ia1] == r2[ia2]
+        ia1 = mod1(ia1 + 1, len1)
+        ia2 = mod1(ia2 + direct, len2)
     end
-    ia = mod1(ia - 1, len1)
-    ja = mod1(ja - direct, len2)
-    ib = mod1(start1 - 1, len1)
-    jb = mod1(start2 - direct, len2)
-    while r1[ib] == r2[jb]
-        ib = mod1(ib - 1, len1)
-        jb = mod1(jb - direct, len2)
+    while r1[ib1] == r2[ib2]
+        ib1 = mod1(ib1 - 1, len1)
+        ib2 = mod1(ib2 - direct, len2)
     end
-    ib = mod1(start1 + 1, len1)
-    jb = mod1(start2 + direct, len2)
-    (xa, ofsa), (xb, ofsb) = minmax(r1[ia], r1[ib])
-    return PeriodicEdge{D}(xa, xb, ofsb .- ofsa), ofsa, ia, ib, ja, jb
+    ia1, ib1 = minmax(mod1(ia1 - 1, len1), mod1(ib1 + 1, len1))
+    ia2, ib2 = minmax(mod1(ia2 - direct, len2), mod1(ib2 + direct, len2))
+    (xa, ofsa), (xb, ofsb) = minmax(r1[ia1], r1[ib1])
+    @assert (PeriodicVertex(xa, ofsa), PeriodicVertex(xb, ofsb)) == minmax(r2[ia2], r2[ib2])
+    ia3 = findfirst(==(r1[ia1]), r3)
+    ib3 = mod1(ia3 + abs(ib1 - ia1), length(r3))
+    if r3[ib3] != r1[ib1]
+        ib3 = mod1(ia3 + len1 - abs(ib1 - ia1), length(r3))
+        @assert r3[ib3] == r1[ib1]
+    end
+    ia3, ib3 = minmax(ia3, ib3)
+    return PeriodicEdge{D}(xa, xb, ofsb .- ofsa), ia1, ib1, ia2, ib2, ia3, ib3
 end
 
-function add_phantomedges!(erings::Vector{Vector{Int}}, rings::Vector{Vector{PeriodicVertex{D}}}, kp::EdgeDict{D}) where D
+function find_phantomedges(erings::Vector{Vector{Int}}, rings::Vector{Vector{PeriodicVertex{D}}}, kp::EdgeDict{D}) where D
     n = length(erings)
     eringdict = Dict{Vector{Int},Int}(x => i for (i,x) in enumerate(erings))
     junctions = PeriodicEdge{D}[] # the list of newly added edges
     junctions_dict = Dict{PeriodicEdge{D},Int}() # reverse map to junctions
-    junctions_per_ring = [Tuple{PeriodicVertex{D},Int,Int}[] for _ in 1:n]
+    junctions_per_ring = Vector{Vector{Tuple{Int,Int,Int}}}(undef, n)
+    has_junctions = falses(n)
     # junctions_per_ring[i] is the list of tuples (x, j, k) indicating that junction x is
     # present between vertices j and k of rings[i].
     known_erings = Dict{Vector{Int},Int}()
     for (i,e) in enumerate(erings)
         e2 = copy(e)
-        canonical_ering!(e2, kp)
+        _start_ofs = canonical_ering!(e2, kp)
+        @assert iszero(_start_ofs) # otherwise, the offset computed below at the next canonical_ering! call is wrong
         known_erings[e2] = i
     end
     buffer = Int[]
     eras = ERingAttributions(erings, kp)
+    encountered = BitVector(undef, n)
     for (i1, er1) in enumerate(erings)
         len1 = length(er1)
         r1 = rings[i1]
+        encountered .= false
         for x1 in er1
-            eri = eras[x1]
-            for (i2, er2) in enumerate(eri)
+            eri = erings_including_excluding(eras, x1, encountered, i1)
+            for (_i2, er2) in enumerate(eri)
                 len2 = length(er2)
-                abs(len2 - len1) > 1 && continue
+                abs(len2 - len1) > 1 && continue # includes the case where er2 is empty
                 PeriodicGraphs.symdiff_cycles!(buffer, er1, er2)
                 length(buffer) ≤ min(len1, len2) || continue
                 isempty(buffer) && continue
-                canonical_ering!(buffer, kp)
-                i = get(known_erings, buffer, 0)
-                i == 0 && continue
-                _, _, ofs_ref = find_ofs_ref(eri, i2)
-                r2 = PeriodicGraphs.OffsetVertexIterator{D}(ofs_ref, rings[eras.attrs[eri.i][i2][1]])
-                junction, ofs, ia, ib , ja, jb = identify_junction(r1, r2)
+                ofs_ear = canonical_ering!(buffer, kp)
+                i3 = get(known_erings, buffer, 0)
+                i3 == 0 && continue
+                r3 = PeriodicGraphs.OffsetVertexIterator{D}(ofs_ear, rings[i3])
+                _, i2, _, ofs_ref = find_ofs_ref(eri, _i2)
+                r2 = PeriodicGraphs.OffsetVertexIterator{D}(ofs_ref, rings[i2])
+                junction, i1a, i1b, i2a, i2b, i3a, i3b = identify_junction(r1, r2, r3)
                 junction_idx = get!(junctions_dict, junction, length(junctions)+1)
                 junction_idx > length(junctions) && push!(junctions, junction)
-
+                for i in (i1, i2, i3)
+                    if !has_junctions[i]
+                        junctions_per_ring[i] = Tuple{PeriodicVertex{D},Int,Int}[]
+                        has_junctions[i] = true
+                    end
+                end
+                push!(junctions_per_ring[i1], (junction_idx, i1a, i1b))
+                push!(junctions_per_ring[i2], (junction_idx, i2a, i2b))
+                push!(junctions_per_ring[i3], (junction_idx, i3a, i3b))
             end
         end
     end
-    return junctions, junctions_per_ring
+    keep = Int[]
+    for k in 1:n
+        if has_junctions[k]
+            x = junctions_per_ring[k]
+            sort!(x)
+            unique!(x)
+            push!(keep, k)
+        end
+    end
+    return junctions, junctions_per_ring, keep
+end
+
+
+function add_phantomedges!(erings::Vector{Vector{Int}}, rings::Vector{Vector{PeriodicVertex{D}}}, kp::EdgeDict{D}) where D
+    junctions, junctions_per_ring, rings_with_junctions = find_phantomedges(erings, rings, kp)
+    max_realedge = length(kp.direct) # beyond are indices of new edges, which are not real ones.
+    isempty(junctions) && return 0
+    for (src, (dst, ofs)) in junctions
+        for outer_ofs in PeriodicGraphs.cages_around(PeriodicGraph{D}(), 2)
+            # update kp with the indices of the new edges
+            get!(kp, (PeriodicVertex{D}(src, outer_ofs), PeriodicVertex{D}(dst, ofs .+ outer_ofs)))
+        end
+    end
+
+    new_rings = Vector{PeriodicVertex{D}}[]
+    new_rings_set = Set{Vector{PeriodicVertex{D}}}()
+    new_erings = Vector{Int}[]
+    for k in rings_with_junctions
+        ring = rings[k]
+        n = length(ring)
+        g = PeriodicGraph{0}(n, PeriodicEdge{0}[(i, i+1) for i in 1:(n-1)])
+        add_edge!(g, PeriodicEdge{0}(1, n))
+        for (_, src, dst) in junctions_per_ring[k]
+            add_edge!(g, PeriodicEdge{0}(src, dst))
+        end
+        subrings, = strong_rings(g, 60) # 60 is a gross overestimation but it should be costless here since ndims(g) == 0
+        for _r in subrings
+            r = first(normalize_cycle!(ring[_r]))
+            if r ∉ new_rings_set
+                push!(new_rings_set, r)
+                push!(new_rings, r)
+                new_ering = Vector{Int}(undef, length(r))
+                PeriodicGraphs.convert_to_ering!(new_ering, r, length(r), kp, zero(SVector{3,Int}))
+                push!(new_erings, new_ering)
+            end
+        end
+    end
+    deleteat!(rings, rings_with_junctions)
+    deleteat!(erings, rings_with_junctions)
+    append!(rings, new_rings)
+    append!(erings, new_erings)
+    I = sortperm(rings; by=length)
+    permute!(rings, I)
+    permute!(erings, I)
+    return max_realedge
 end
