@@ -47,138 +47,141 @@ function canonical_tile!(tiling::Tiling{D}, tile::Vector{PeriodicVertex{D}}) whe
     if idx == n
         push!(tiling.tiles, normalized)
         push!(tiling.tileedges, uniqueedges)
-        push!(tiling.tilevertices, unique_vertices(normalized, tiling))
+        uniquevertices = unique_vertices(normalized, tiling)
+        push!(tiling.tilevertices, uniquevertices)
         for x in normalized
             fst, lst = tiling.tilesofring[x.v]
             new = PeriodicVertex{D}(idx, x.ofs + ofs)
-            if iszero(fst.v)
-                tiling.tilesofring[x.v] = (new, lst)
-            elseif iszero(lst.v)
+            if iszero(first(fst))
+                tiling.tilesofring[x.v] = (new, fst)
+            elseif iszero(first(lst))
                 tiling.tilesofring[x.v] = (fst, new)
             else
-                if !(fst == new || lst == new)
-                    # @show fst
-                    # @show lst
-                    # @show new
-                    # @show x
-                    # @show normalized
-                end
+                # @error "Ring $x of new tile $n joins more than 2 tiles."
+
+                # @show fst
+                # @show lst
+                # @show new
+                # @show x
+                # @show normalized
             end
         end
     elseif tiling.tiles[idx] != normalized
         # two tiles share the same edges but are made from different rings
+        @show tiling.tiles[idx]
+        @show normalized
         @error "Colliding tiles"
+        delete!(tiling.tiledict, uniqueedges)
     end
     return PeriodicVertex{D}(idx, ofs)
 end
 
-function _detect_ring_crossing!(intersections, pos, r1, i1, r2, i2, opp, idx1, idx2)
-    bef1 = r1[mod1(i1-1, length(r1))]
-    bef2 = r2[mod1(i2-1, length(r2))]
-    bef1 == bef2 && return false
-    aft1 = r1[mod1(i1+1, length(r1))]
-    aft1 == bef2 && return false
-    aft2 = r2[mod1(i2+1, length(r2))]
-    (aft1 == aft2 || bef1 == aft2) && return false
+# function _detect_ring_crossing!(intersections, pos, r1, i1, r2, i2, opp, idx1, idx2)
+#     bef1 = r1[mod1(i1-1, length(r1))]
+#     bef2 = r2[mod1(i2-1, length(r2))]
+#     bef1 == bef2 && return false
+#     aft1 = r1[mod1(i1+1, length(r1))]
+#     aft1 == bef2 && return false
+#     aft2 = r2[mod1(i2+1, length(r2))]
+#     (aft1 == aft2 || bef1 == aft2) && return false
 
-    p_ref = pos[first(r1[i1])] .+ last(r1[i1])
-    p_opp = pos[first(opp)] .+ last(opp) .- p_ref
-    p_bef1 = pos[first(bef1)] .+ last(bef1) .- p_ref
-    p_bef2 = pos[first(bef2)] .+ last(bef2) .- p_ref
-    p_aft1 = pos[first(aft1)] .+ last(aft1) .- p_ref
-    p_aft2 = pos[first(aft2)] .+ last(aft2) .- p_ref
+#     p_ref = pos[first(r1[i1])] .+ last(r1[i1])
+#     p_opp = pos[first(opp)] .+ last(opp) .- p_ref
+#     p_bef1 = pos[first(bef1)] .+ last(bef1) .- p_ref
+#     p_bef2 = pos[first(bef2)] .+ last(bef2) .- p_ref
+#     p_aft1 = pos[first(aft1)] .+ last(aft1) .- p_ref
+#     p_aft2 = pos[first(aft2)] .+ last(aft2) .- p_ref
 
-    λ = norm(p_opp)
-    proj_bef1 = p_bef1 - dot(p_bef1, p_opp)/λ*p_opp
-    proj_bef2 = p_bef1 - dot(p_bef2, p_opp)/λ*p_opp
-    proj_aft1 = p_bef1 - dot(p_aft1, p_opp)/λ*p_opp
-    proj_aft2 = p_bef1 - dot(p_aft2, p_opp)/λ*p_opp
+#     λ = norm(p_opp)
+#     proj_bef1 = p_bef1 - dot(p_bef1, p_opp)/λ*p_opp
+#     proj_bef2 = p_bef1 - dot(p_bef2, p_opp)/λ*p_opp
+#     proj_aft1 = p_bef1 - dot(p_aft1, p_opp)/λ*p_opp
+#     proj_aft2 = p_bef1 - dot(p_aft2, p_opp)/λ*p_opp
 
-    if proj_bef1 == -proj_aft1
-        if proj_bef2 == -proj_aft2
-            push!(intersections, minmax(idx1, idx2))
-            return true
-        end
-        proj_bef1, proj_bef2 = proj_bef2, proj_bef1
-        proj_aft1, proj_aft2 = proj_aft2, proj_aft1
-    end
+#     if proj_bef1 == -proj_aft1
+#         if proj_bef2 == -proj_aft2
+#             push!(intersections, minmax(idx1, idx2))
+#             return true
+#         end
+#         proj_bef1, proj_bef2 = proj_bef2, proj_bef1
+#         proj_aft1, proj_aft2 = proj_aft2, proj_aft1
+#     end
 
-    bef1_bef2 = dot(proj_bef1, proj_bef2)
-    aft1_bef2 = dot(proj_aft1, proj_bef2)
-    bef1_aft2 = dot(proj_bef1, proj_aft2)
-    aft1_aft2 = dot(proj_aft1, proj_aft2)
+#     bef1_bef2 = dot(proj_bef1, proj_bef2)
+#     aft1_bef2 = dot(proj_aft1, proj_bef2)
+#     bef1_aft2 = dot(proj_bef1, proj_aft2)
+#     aft1_aft2 = dot(proj_aft1, proj_aft2)
 
-    if (bef1_bef2 ≥ 0 && aft1_bef2 ≥ 0 && (bef1_aft2 < 0 || aft1_aft2 < 0)) ||
-       (bef1_aft2 ≥ 0 && aft1_aft2 ≥ 0 && (bef1_bef2 < 0 || aft1_bef2 < 0))
-        push!(intersections, minmax(idx1, idx2))
-        @show r1, r2
-        return true
-    end
-    false
-end
+#     if (bef1_bef2 ≥ 0 && aft1_bef2 ≥ 0 && (bef1_aft2 < 0 || aft1_aft2 < 0)) ||
+#        (bef1_aft2 ≥ 0 && aft1_aft2 ≥ 0 && (bef1_bef2 < 0 || aft1_bef2 < 0))
+#         push!(intersections, minmax(idx1, idx2))
+#         @show r1, r2
+#         return true
+#     end
+#     false
+# end
 
-function _find_opp(r::PeriodicGraphs.OffsetVertexIterator{D}, pos) where D
-    lenr = length(r)
-    opp = mod1(pos + fld(lenr, 2), lenr)
-    oppb = iseven(lenr) ? 0 : mod1(pos + cld(lenr, 2), lenr)
-    oppositeb = iszero(oppb) ? PeriodicVertex{D}(0) : r[oppb]
-    vi = r[pos]
-    if oppb != 0 && oppositeb < vi
-        oppb = 0
-        oppositeb = PeriodicVertex{D}(0)
-    end
-    opposite = r[opp]
-    if opposite < vi
-        iszero(oppb) && return 0, 0, PeriodicVertex{D}(0), PeriodicVertex{D}(0)
-        opp = oppb
-        opposite = r[oppb]
-        oppb = 0
-        oppositeb = PeriodicVertex{D}(0)
-    end
-    return opp, oppb, opposite, oppositeb
-end
+# function _find_opp(r::PeriodicGraphs.OffsetVertexIterator{D}, pos) where D
+#     lenr = length(r)
+#     opp = mod1(pos + fld(lenr, 2), lenr)
+#     oppb = iseven(lenr) ? 0 : mod1(pos + cld(lenr, 2), lenr)
+#     oppositeb = iszero(oppb) ? PeriodicVertex{D}(0) : r[oppb]
+#     vi = r[pos]
+#     if oppb != 0 && oppositeb < vi
+#         oppb = 0
+#         oppositeb = PeriodicVertex{D}(0)
+#     end
+#     opposite = r[opp]
+#     if opposite < vi
+#         iszero(oppb) && return 0, 0, PeriodicVertex{D}(0), PeriodicVertex{D}(0)
+#         opp = oppb
+#         opposite = r[oppb]
+#         oppb = 0
+#         oppositeb = PeriodicVertex{D}(0)
+#     end
+#     return opp, oppb, opposite, oppositeb
+# end
 
-function detect_ring_crossing(pge::PeriodicGraphEmbedding{D}, rings::Vector{Vector{PeriodicVertex{D}}}) where D
-    ras = RingAttributions{D}(length(pge), rings)
-    intersections = Set{Tuple{Int,Int}}()
-    for i in 1:length(pge)
-        ri = ras[i]
-        attri = ras.attrs[i]
-        vi = PeriodicVertex{D}(i)
-        stored_opps = [_find_opp(ring, last(x)) for (ring, x) in zip(ri, attri)]
-        for (j1, (r1, (idx1, i1))) in enumerate(zip(ri, attri))
-            opp1, oppb1, opposite1, oppositeb1 = stored_opps[j1]
-            iszero(opp1) && continue
-            for j2 in (j1+1):length(ri)
-                opp2, oppb2, opposite2, oppositeb2 = stored_opps[j2]
-                iszero(opp2) && continue
-                r2 = ri[j2]
-                abs(length(r2) - length(r1)) ≤ 1 || continue
-                idx2, i2 = attri[j2]
-                if opposite1 == opposite2
-                    _detect_ring_crossing!(intersections, pge.pos, r1, i1, r2, i2, opposite1, idx1, idx2) && continue
-                    _detect_ring_crossing!(intersections, pge.pos, r1, opp1, r2, opp2, vi, idx1, idx2) && continue
-                end
-                if !iszero(oppb1)
-                    if oppositeb1 == opposite2
-                        _detect_ring_crossing!(intersections, pge.pos, r1, i1, r2, i2, oppositeb1, idx1, idx2) && continue
-                        _detect_ring_crossing!(intersections, pge.pos, r1, oppb1, r2, opp2, vi, idx1, idx2) && continue
-                    end 
-                    if !iszero(oppb2) && oppositeb1 == oppositeb2
-                        _detect_ring_crossing!(intersections, pge.pos, r1, i1, r2, i2, oppositeb1, idx1, idx2) && continue
-                        _detect_ring_crossing!(intersections, pge.pos, r1, oppb1, r2, oppb2, vi, idx1, idx2) && continue
-                    end
-                end
-                if !iszero(oppb2) && opposite1 == oppositeb2
-                    _detect_ring_crossing!(intersections, pge.pos, r1, i1, r2, i2, opposite1, idx1, idx2) && continue
-                    _detect_ring_crossing!(intersections, pge.pos, r1, opp1, r2, oppb2, vi, idx1, idx2) && continue
-                end
-            end
-        end
-    end
-    @show intersections
-
-end
+# function detect_ring_crossing(pge::PeriodicGraphEmbedding{D}, rings::Vector{Vector{PeriodicVertex{D}}}) where D
+#     ras = RingAttributions{D}(length(pge), rings)
+#     intersections = Set{Tuple{Int,Int}}()
+#     for i in 1:length(pge)
+#         ri = ras[i]
+#         attri = ras.attrs[i]
+#         vi = PeriodicVertex{D}(i)
+#         stored_opps = [_find_opp(ring, last(x)) for (ring, x) in zip(ri, attri)]
+#         for (j1, (r1, (idx1, i1))) in enumerate(zip(ri, attri))
+#             opp1, oppb1, opposite1, oppositeb1 = stored_opps[j1]
+#             iszero(opp1) && continue
+#             for j2 in (j1+1):length(ri)
+#                 opp2, oppb2, opposite2, oppositeb2 = stored_opps[j2]
+#                 iszero(opp2) && continue
+#                 r2 = ri[j2]
+#                 abs(length(r2) - length(r1)) ≤ 1 || continue
+#                 idx2, i2 = attri[j2]
+#                 if opposite1 == opposite2
+#                     _detect_ring_crossing!(intersections, pge.pos, r1, i1, r2, i2, opposite1, idx1, idx2) && continue
+#                     _detect_ring_crossing!(intersections, pge.pos, r1, opp1, r2, opp2, vi, idx1, idx2) && continue
+#                 end
+#                 if !iszero(oppb1)
+#                     if oppositeb1 == opposite2
+#                         _detect_ring_crossing!(intersections, pge.pos, r1, i1, r2, i2, oppositeb1, idx1, idx2) && continue
+#                         _detect_ring_crossing!(intersections, pge.pos, r1, oppb1, r2, opp2, vi, idx1, idx2) && continue
+#                     end 
+#                     if !iszero(oppb2) && oppositeb1 == oppositeb2
+#                         _detect_ring_crossing!(intersections, pge.pos, r1, i1, r2, i2, oppositeb1, idx1, idx2) && continue
+#                         _detect_ring_crossing!(intersections, pge.pos, r1, oppb1, r2, oppb2, vi, idx1, idx2) && continue
+#                     end
+#                 end
+#                 if !iszero(oppb2) && opposite1 == oppositeb2
+#                     _detect_ring_crossing!(intersections, pge.pos, r1, i1, r2, i2, opposite1, idx1, idx2) && continue
+#                     _detect_ring_crossing!(intersections, pge.pos, r1, opp1, r2, oppb2, vi, idx1, idx2) && continue
+#                 end
+#             end
+#         end
+#     end
+#     @show intersections
+# end
 
 function add_rtile!(rt::Vector{PeriodicVertex{D}}, gauss, known_htiles, tiling, m, ofs=nothing) where D
     normalize_cycle!(rt)
@@ -195,15 +198,11 @@ end
 function tilingof(g::PeriodicGraph{D}, depth::Integer=10, symmetries::AbstractSymmetryGroup=NoSymmetryGroup(g), dist::DistanceRecord=DistanceRecord(g,depth)) where D
     _rings, symms, erings, kp = strong_erings(g, depth, symmetries, dist)
     rings = Vector{PeriodicVertex{D}}[[reverse_hash_position(x, g) for x in r] for r in _rings]
-    max_realedges = Int[]
-    _max_realedge = add_phantomedges!(erings, rings, kp)
-    while _max_realedge != 0
-        @show _max_realedge
-        push!(max_realedges, _max_realedge)
-        _max_realedge = add_phantomedges!(erings, rings, kp)
+    max_realedge = add_phantomedges!(erings, rings, kp)
+    if max_realedge != 0
+        symms = NoSymmetryGroup(length(rings)) # TODO: adapt the symmetry instead
     end
     tiling = Tiling{D}(rings, erings, kp)
-    # TODO: include detect_ring_crossing
     uniquesymms = unique(symms)
     m = length(rings)
     exploration = [TilingAroundCycle{D}(u) for u in uniquesymms]
@@ -242,6 +241,8 @@ function tilingof(g::PeriodicGraph{D}, depth::Integer=10, symmetries::AbstractSy
         for i in new_idx:num_tiles
             for (v, _) in tiling.tiles[i]
                 if tilecounter[v] == 2
+                    # println("X ", name)
+                    # return nothing
                     @error "Ring $v joins more than 2 tiles."
                 end
                 tilecounter[v] += 1
