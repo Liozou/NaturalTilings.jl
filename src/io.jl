@@ -1,6 +1,9 @@
 export export_tile
 
 function export_tile(file, pge::PeriodicGraphEmbedding3D{T}, tiling::Tiling, rtile::AbstractVector{PeriodicVertex3D}, type=nothing) where T
+    if splitext(file)[2] != ".vtf"
+        file = file * ".vtf"
+    end
     mkpath(splitdir(file)[1])
     rings::Vector{PeriodicGraphs.OffsetVertexIterator{3}} = [PeriodicGraphs.OffsetVertexIterator{3}(ofs, tiling.rings[x]) for (x, ofs) in rtile]
     vertices::Vector{PeriodicVertex3D} = unique!(sort!(reduce(vcat, rings; init=PeriodicVertex3D[])))

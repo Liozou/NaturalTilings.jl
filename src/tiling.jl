@@ -195,8 +195,13 @@ end
 function tilingof(g::PeriodicGraph{D}, depth::Integer=10, symmetries::AbstractSymmetryGroup=NoSymmetryGroup(g), dist::DistanceRecord=DistanceRecord(g,depth)) where D
     _rings, symms, erings, kp = strong_erings(g, depth, symmetries, dist)
     rings = Vector{PeriodicVertex{D}}[[reverse_hash_position(x, g) for x in r] for r in _rings]
-    max_realedge = add_phantomedges!(erings, rings, kp)
-    @show max_realedge
+    max_realedges = Int[]
+    _max_realedge = add_phantomedges!(erings, rings, kp)
+    while _max_realedge != 0
+        @show _max_realedge
+        push!(max_realedges, _max_realedge)
+        _max_realedge = add_phantomedges!(erings, rings, kp)
+    end
     tiling = Tiling{D}(rings, erings, kp)
     # TODO: include detect_ring_crossing
     uniquesymms = unique(symms)
