@@ -254,7 +254,7 @@ function add_phantomedges!(erings::Vector{Vector{Int}}, rings::Vector{Vector{Per
             if r ∉ new_rings_set
                 push!(new_rings_set, r)
                 push!(new_rings, r)
-                push!(new_erings, convert_to_ering(new_ering, r, kp))
+                push!(new_erings, convert_to_ering(r, kp))
             end
         end
     end

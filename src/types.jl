@@ -145,6 +145,7 @@ cycle and any other considered for tiling in the cycle graph.
 function explore_around_cycle!(tac::TilingAroundCycle{D}, tiling::Tiling{D}, untilfirstfound=false) where D
     Q = tac.Q
     restart = tac.restart[]
+    restart > length(Q) && return Vector{PeriodicVertex{D}}[]
     maxdist = untilfirstfound ? typemax(Int) : isone(restart) ? 1 : last(Q[restart]) + 1
     newrestart = restart
     tiles = Vector{PeriodicVertex{D}}[]
