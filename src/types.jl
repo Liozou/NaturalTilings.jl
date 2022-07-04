@@ -1,5 +1,6 @@
 export Tiling
 
+
 struct Tiling{D}
     rings::Vector{Vector{PeriodicVertex{D}}} # each sublist is the list of vertices
     erings::Vector{Vector{Int}} # each sublist is the list of edge indices in kp of a ring
@@ -125,12 +126,13 @@ function TilingAroundCycle{D}(i) where D
     return TilingAroundCycle{D}(gauss, encountered, Q, Ref(1))
 end
 
-function cycle_at_pos(tiling::Tiling{D}, u::PeriodicVertex{D}) where D
-    ring = tiling.rings[u.v]
-    len = length(ring)
-    ret = Vector{Int}(undef, len)
-    convert_to_ering!(ret, ring, len, tiling.kp, u.ofs)
-    return sort!(ret)
+"""
+    ering_at_pos(tiling::Tiling{D}, (i, ofs)::PeriodicVertex{D})
+
+Retrieve the ering in `tiling` corresponding to ring number `i` offset by `ofs`.
+"""
+function ering_at_pos(tiling::Tiling{D}, (i, ofs)::PeriodicVertex{D}) where D
+    return convert_to_ering(tiling.rings[i], tiling.kp, ofs)
 end
 
 """
@@ -149,9 +151,9 @@ function explore_around_cycle!(tac::TilingAroundCycle{D}, tiling::Tiling{D}, unt
     for (u, dist) in Iterators.rest(Q, restart)
         dist > maxdist && break
         newrestart += 1
-        if gaussian_elimination!(tac.gauss, cycle_at_pos(tiling, u)) # a sum of previously encountered rings is empty
+        if gaussian_elimination!(tac.gauss, ering_at_pos(tiling, u)) # a sum of previously encountered rings is empty
             track = retrieve_track!(tac.gauss)
-            if last(track) == 1
+            if last(track) == 1 # otherwise the tile does not contain the current cycle.
                 if untilfirstfound
                     maxdist = dist
                 end

@@ -114,13 +114,6 @@ function canonical_ering!(ering::Vector{Int}, kp::EdgeDict{D}) where D
     ofs
 end
 
-function find_common_vertex(x, y, kp)
-    xa, xb = kp[x]
-    ya, yb = kp[y]
-    (xa == ya || xa == yb) && return xa
-    return xb
-end
-
 """
     identify_junction(r1::Vector{PeriodicVertex{D}}, r2, r3) where D
 
@@ -261,9 +254,7 @@ function add_phantomedges!(erings::Vector{Vector{Int}}, rings::Vector{Vector{Per
             if r ∉ new_rings_set
                 push!(new_rings_set, r)
                 push!(new_rings, r)
-                new_ering = Vector{Int}(undef, length(r))
-                PeriodicGraphs.convert_to_ering!(new_ering, r, length(r), kp, zero(SVector{3,Int}))
-                push!(new_erings, new_ering)
+                push!(new_erings, convert_to_ering(new_ering, r, kp))
             end
         end
     end
