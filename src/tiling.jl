@@ -103,7 +103,8 @@ function add_rtile!(rt::Vector{PeriodicVertex{D}}, gauss, known_htiles, tiling, 
     return tile
 end
 
-function tilingof(g::PeriodicGraph{D}, depth::Integer=10, symmetries::AbstractSymmetryGroup=NoSymmetryGroup(g), dist::DistanceRecord=DistanceRecord(g,depth)) where D
+function tilingof(pge::PeriodicGraphEmbedding{D}, depth::Integer=10, symmetries::AbstractSymmetryGroup=NoSymmetryGroup(g), dist::DistanceRecord=DistanceRecord(g,depth)) where D
+    g = pge.g
     _rings, symms, erings, kp = strong_erings(g, depth, symmetries, dist)
     rings = Vector{PeriodicVertex{D}}[[reverse_hash_position(x, g) for x in r] for r in _rings]
     max_realedge = add_phantomedges!(erings, rings, kp)
@@ -165,4 +166,4 @@ function tilingof(g::PeriodicGraph{D}, depth::Integer=10, symmetries::AbstractSy
     return tiling
 end
 
-tilingof(g::PeriodicGraph{D}, symmetries::AbstractSymmetryGroup, dist::DistanceRecord=DistanceRecord(g,10)) where {D} = tilingof(g, 10, symmetries, dist)
+tilingof(pge::PeriodicGraphEmbedding{D}, symmetries::AbstractSymmetryGroup, dist::DistanceRecord=DistanceRecord(g,10)) where {D} = tilingof(pge, 10, symmetries, dist)
