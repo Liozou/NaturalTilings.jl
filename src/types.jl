@@ -1,7 +1,11 @@
 export Tiling
 
+function cycle_center(cycle, pge::PeriodicGraphEmbedding{D,T}) where {D,T}
+    sum(pge[x] for x in cycle; init=zero(SVector{D,T})) / length(cycle)
+end
 
-struct Tiling{D}
+struct Tiling{D,T}
+    pge::PeriodicGraphEmbedding{D,T}
     rings::Vector{Vector{PeriodicVertex{D}}} # each sublist is the list of vertices
     erings::Vector{Vector{Int}} # each sublist is the list of edge indices in kp of a ring
     tiles::Vector{Vector{PeriodicVertex{D}}} # each sublist is a list of indices of rings
@@ -11,10 +15,11 @@ struct Tiling{D}
     tilesofring::Vector{Tuple{PeriodicVertex{D},PeriodicVertex{D}}} # for each ring, the two tiles attached to it
     ringsofedge::Dict{PeriodicEdge{D},Vector{PeriodicVertex{D}}} # for each edge, the list of associated ring
     rgraph::PeriodicGraph{D} # The graph of rings: two rings are bonded if they share an edge
+    ringcenters::Vector{SVector{D,T}} # The center of each ring
     kp::EdgeDict{D} # correspondance between edges and their index
 end
 
-function Tiling{D}(rings, erings, kp) where {D}
+function Tiling(pge::PeriodicGraphEmbedding{D,T}, rings, erings, kp) where {D,T}
     n = length(erings)
     ringsofedge = Dict{PeriodicEdge{D},Vector{PeriodicVertex{D}}}()
     rgraph = PeriodicGraph{D}(n)
@@ -44,7 +49,8 @@ function Tiling{D}(rings, erings, kp) where {D}
     tilevertices = Vector{PeriodicVertex{D}}[]
     tilesofring = [(PeriodicVertex{D}(0),PeriodicVertex{D}(0)) for _ in 1:n]
     tiledict = Dict{Vector{Int},Int}()
-    return Tiling{D}(rings, erings, tiles, tileedges, tilevertices, tiledict, tilesofring, ringsofedge, rgraph, kp)
+    ringcenters = [cycle_center(r, pge) for r in rings]
+    return Tiling{D,T}(pge, rings, erings, tiles, tileedges, tilevertices, tiledict, tilesofring, ringsofedge, rgraph, ringcenters, kp)
 end
 
 
