@@ -30,6 +30,26 @@ function unique_edges(tile::Vector{PeriodicVertex{D}}, tiling::Tiling{D}) where 
     return ret
 end
 
+function neighboring_edges(_edges::Vector{Int}, vertices::Vector{PeriodicVertex{D}}, tiling::Tiling{D,T}) where {D,T}
+    edges = Set{Int}(_edges)
+    returned_edges = Int[]
+    for x in vertices
+        for y in neighbors(tiling.pge.g, x)
+            e = get!(tiling.kp, minmax(x, y))
+            e in edges && continue
+            push!(returned_edges, e)
+        end
+    end
+    sort!(returned_edges)
+    unique!(returned_edges)
+    ret = Vector{Line{T}}(undef, length(returned_edges))
+    for (i, edge) in enumerate(returned_edges)
+        x1, x2 = tiling.kp[edge]
+        ret[i] = shortline(tiling.pge[x1], tiling.pge[x2])
+    end
+    return ret
+end
+
 """
     canonical_tile!(tiling::Tiling{D}, tile::Vector{PeriodicVertex{D}}, checkgeometry) where D
 
@@ -45,9 +65,19 @@ function canonical_tile!(tiling::Tiling{D}, tile::Vector{PeriodicVertex{D}}, che
     n = length(tiling.tiles) + 1
     idx = get!(tiling.tiledict, uniqueedges, n)
     if idx == n
+        uniquevertices = unique_vertices(normalized, tiling)
+        if checkgeometry
+            for line in neighboring_edges(uniqueedges, uniquevertices, tiling)
+                if intersect_polyedra(tiling, line, normalized) ≥ 2 # invalid tile
+                    print(intersect_polyedra(tiling, line, normalized))
+                    delete!(tiling.tiledict, uniqueedges)
+                    return PeriodicVertex{D}(0)
+                end
+            end
+        end
+        checkgeometry && print("!")
         push!(tiling.tiles, normalized)
         push!(tiling.tileedges, uniqueedges)
-        uniquevertices = unique_vertices(normalized, tiling)
         push!(tiling.tilevertices, uniquevertices)
         for (i,x) in enumerate(normalized)
             fst, lst = tiling.tilesofring[x.v]
@@ -92,17 +122,11 @@ function canonical_tile!(tiling::Tiling{D}, tile::Vector{PeriodicVertex{D}}, che
     return PeriodicVertex{D}(idx, ofs)
 end
 
-struct NeighboringEdgeIterator
-
-
 function add_rtile!(rt::Vector{PeriodicVertex{D}}, gauss, known_htiles, tiling, m, checkgeometry, ofs=nothing) where D
     normalize_cycle!(rt)
     t = sort!([hash_position(PeriodicVertex{D}(v, isnothing(ofs) ? o : o .+ ofs), m) for (v,o) in rt])
     t ∈ known_htiles && return 0
     push!(known_htiles, t)
-    if checkgeometry
-        # TODO:
-    end
     gaussian_elimination!(gauss, t) && return 0
     isnothing(ofs) || return 0
     tile, ofs = canonical_tile!(tiling, rt, checkgeometry)
@@ -111,11 +135,53 @@ function add_rtile!(rt::Vector{PeriodicVertex{D}}, gauss, known_htiles, tiling, 
 end
 
 function tilingof(pge::PeriodicGraphEmbedding{D}, depth::Integer=10, symmetries::AbstractSymmetryGroup=NoSymmetryGroup(pge.g), dist::DistanceRecord=DistanceRecord(pge.g,depth)) where D
-    g = pge.g
+    g = deepcopy(pge.g)
     _rings, symms, erings, kp = strong_erings(g, depth, symmetries, dist)
     rings = Vector{PeriodicVertex{D}}[[reverse_hash_position(x, g) for x in r] for r in _rings]
-    max_realedge = add_phantomedges!(erings, rings, kp)
-    if max_realedge != 0
+
+    max_realedges = Int[]
+
+    new_rings_idx = collect(1:length(rings))
+    max_realedge = add_phantomedges!(erings, rings, kp, new_rings_idx)
+    while !iszero(max_realedge)
+        max_realedge = add_phantomedges!(erings, rings, kp, new_rings_idx)
+        push!(max_realedges, max_realedge)
+    end
+    
+    # # TODO: remove
+    # junctions2, = find_phantomedges(erings, rings, kp)
+    # println(junctions2)
+    # # for e in junctions2
+    # #     add_edge!(g, e)
+    # # end
+    # _rings, symms, erings, kp = strong_erings(g, depth, symmetries, dist)
+    # rings = Vector{PeriodicVertex{D}}[[reverse_hash_position(x, g) for x in r] for r in _rings]
+    # add_phantomedges!(erings, rings, kp)
+    # junctions, = find_phantomedges(erings, rings, kp)
+    # println(junctions)
+    # add_phantomedges!(erings, rings, kp)
+    # junctions, = find_phantomedges(erings, rings, kp)
+    # println(junctions)
+
+    # # while !iszero(max_realedge)
+    # #     @show max_realedge
+    # #     max_realedge = add_phantomedges!(erings, rings, kp)
+    # # end
+
+    # # max_realedges = Int[]
+    # # junctions, = find_phantomedges(erings, rings, kp)
+    # # while !isempty(junctions)
+    # #     push!(max_realedges, length(kp.direct))
+    # #     for e in junctions
+    # #         add_edge!(g, e)
+    # #     end
+    # #     _rings, symms, erings, kp = strong_erings(g, depth, symmetries, dist)
+    # #     rings = Vector{PeriodicVertex{D}}[[reverse_hash_position(x, g) for x in r] for r in _rings]
+    # #     junctions, = find_phantomedges(erings, rings, kp)
+    # # end
+    # # @show max_realedges
+
+    if !isempty(max_realedges)
         symms = NoSymmetryGroup(length(rings)) # TODO: adapt the symmetry instead
     end
     tiling = Tiling(pge, rings, erings, kp)
@@ -128,7 +194,7 @@ function tilingof(pge::PeriodicGraphEmbedding{D}, depth::Integer=10, symmetries:
     num_tiles = 0
     num_iter = 0
     known_htiles = Set{Vector{Int}}()
-    checkgeometry = false
+    checkgeometry = false # FIXME: false
     while !isempty(missing2tiles) && num_iter < 3
         num_iter += 1
         new_rtiles = Vector{PeriodicVertex{D}}[] # each sublist is the list of rings of a tile
@@ -182,7 +248,7 @@ function tilingof(pge::PeriodicGraphEmbedding{D}, depth::Integer=10, symmetries:
             for i in 1:m
                 tiling.tilesofring[i] = (PeriodicVertex{D}(0),PeriodicVertex{D}(0))
             end
-            checkgeometry && return tiling # abandon and return empty tiling
+            (D != 3 || checkgeometry) && return tiling # abandon and return empty tiling
             # otherwise, restart everything but now checking the geometry of each tile
             checkgeometry = true
             exploration = [TilingAroundCycle{D}(u) for u in uniquesymms]
@@ -197,7 +263,7 @@ function tilingof(pge::PeriodicGraphEmbedding{D}, depth::Integer=10, symmetries:
 
         missing2tiles = [i for i in uniquesymms if tilecounter[i] < 2]
     end
-    isempty(missing2tiles) || @error "Possibly missed some large tiles"
+    isempty(missing2tiles) || isempty(tiling.tiles) || @error "Possibly missed some large tiles"
 
     return tiling
 end

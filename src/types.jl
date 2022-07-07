@@ -1,3 +1,7 @@
+
+include("TriangleIntersect.jl")
+using .TriangleIntersect
+
 export Tiling
 
 function cycle_center(cycle, pge::PeriodicGraphEmbedding{D,T}) where {D,T}
@@ -15,7 +19,8 @@ struct Tiling{D,T}
     tilesofring::Vector{Tuple{PeriodicVertex{D},PeriodicVertex{D}}} # for each ring, the two tiles attached to it
     ringsofedge::Dict{PeriodicEdge{D},Vector{PeriodicVertex{D}}} # for each edge, the list of associated ring
     rgraph::PeriodicGraph{D} # The graph of rings: two rings are bonded if they share an edge
-    ringcenters::Vector{SVector{D,T}} # The center of each ring
+    ringcenters::Vector{SVector{3,T}} # The center of each ring, if D == 3
+    triangles::Vector{Vector{Triangle{T}}} # Triangulation of each ring, if D == 3
     kp::EdgeDict{D} # correspondance between edges and their index
 end
 
@@ -49,8 +54,9 @@ function Tiling(pge::PeriodicGraphEmbedding{D,T}, rings, erings, kp) where {D,T}
     tilevertices = Vector{PeriodicVertex{D}}[]
     tilesofring = [(PeriodicVertex{D}(0),PeriodicVertex{D}(0)) for _ in 1:n]
     tiledict = Dict{Vector{Int},Int}()
-    ringcenters = [cycle_center(r, pge) for r in rings]
-    return Tiling{D,T}(pge, rings, erings, tiles, tileedges, tilevertices, tiledict, tilesofring, ringsofedge, rgraph, ringcenters, kp)
+    ringcenters = D == 3 ? [cycle_center(r, pge) for r in rings] : SVector{3,T}[]
+    triangles = D == 3 ? [collect(TriangleIterator(pge, r, center)) for (r, center) in zip(rings, ringcenters)] : Vector{Triangle{T}}[]
+    return Tiling{D,T}(pge, rings, erings, tiles, tileedges, tilevertices, tiledict, tilesofring, ringsofedge, rgraph, ringcenters, triangles, kp)
 end
 
 
@@ -88,6 +94,10 @@ end
 # end
 
 function Base.show(io::IO, ::MIME"text/plain", t::Tiling{D}) where D
+    if isempty(t.tiles)
+        print(io, "No tiling found")
+        return
+    end
     tiles = [sort!([length(t.rings[x.v]) for x in _t]) for _t in t.tiles]
     sort!(tiles)
     sort!(tiles; by=length)

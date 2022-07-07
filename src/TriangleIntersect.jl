@@ -9,27 +9,13 @@
 
 module TriangleIntersect
 
-import Base: -, *, +, /#, intersect, ≈
+using StaticArrays
+export Triangle, Ray, Line, Intersection, intersect_triangle, shortline
 
-export Point, Triangle, Ray, Line, Intersection, intersect_triangle
+const Point{T} = SVector{3,T} # type alias
 
-struct Point{T}
-    x::T
-    y::T
-    z::T
-end
-Point((x, y, z)) = Point(x, y, z)
-
-*(p::Point{T}, n::Number) where {T} = Point{T}(p.x*n, p.y*n, p.z*n)
-*(n::Number, p::Point) = p*n
-*(p1::Point, p2::Point) = p1.x*p2.x+p1.y*p2.y+p1.z*p2.z
--(p1::Point{T}, p2::Point{T}) where {T} = Point{T}(p1.x-p2.x, p1.y-p2.y, p1.z-p2.z)
--(p::Point{T}) where {T} = Point{T}(-p.x, -p.y, -p.z)
-+(p1::Point{T}, p2::Point{T}) where {T} = Point{T}(p1.x+p2.x, p1.y+p2.y, p1.z+p2.z)
+dot(p1::Point, p2::Point) = p1.x*p2.x+p1.y*p2.y+p1.z*p2.z
 cross(p1::Point{T}, p2::Point{T}) where {T} = Point{T}(p1.y*p2.z-p1.z*p2.y, -p1.x*p2.z+p1.z*p2.x, p1.x*p2.y-p1.y*p2.x)
-/(p::Point{T}, n::Number) where {T} = Point{T}(p.x/n, p.y/n, p.z/n)
-# unitize(p::Point) = p/(p*p)
-# ≈(p1::Point, p2::Point) = p1.x ≈ p2.x && p1.y ≈ p2.y && p1.z ≈ p2.z
 
 struct Triangle{T}
     a::Point{T}
@@ -40,18 +26,33 @@ struct Triangle{T}
     v2v2::T
     v1v2::T
     denom::T
-    function Triangle(a::Point{T}, b::Point{T}, c::Point{T}) where {T}
-        v1 = b-a
-        v2 = c-a
-        normal = cross(v1, v2)
-        v1v1 = v1*v1
-        v2v2 = v2*v2
-        v1v2 = v1*v2
-        denom = v1v2*v1v2 - v1v1*v2v2
-        new{T}(a, v1, v2, normal, v1v1, v2v2, v1v2, denom)
-    end
 end
-Triangle(a, b, c) = Triangle(Point(a), Point(b), Point(c))
+
+function Triangle(a::Point{T}, b::Point{T}, c::Point{T}) where {T}
+    v1 = b-a
+    v2 = c-a
+    normal = cross(v1, v2)
+    v1v1 = dot(v1, v1)
+    v2v2 = dot(v2, v2)
+    v1v2 = dot(v1, v2)
+    denom = v1v2*v1v2 - v1v1*v2v2
+    Triangle{T}(a, v1, v2, normal, v1v1, v2v2, v1v2, denom)
+end
+Triangle((a, b, c)) = Triangle(Point(a), Point(b), Point(c))
+
+function Triangle(t::Triangle{T}, ofs::Point{S}) where {T,S}
+    Triangle{T}(t.a + ofs, t.v1, t.v2, t.normal, t.v1v1, t.v2v2, t.v1v2, t.denom)
+end
+
+function Base.show(io::IO, triangle::Triangle)
+    print(io, Triangle, "(((")
+    join(io, triangle.a, ", ")
+    print(io, "), (")
+    join(io, triangle.a + triangle.v1, ", ")
+    print(io, "), (")
+    join(io, triangle.a + triangle.v2, ", ")
+    print(io, ")))")
+end
 
 struct Intersection{T}
     dist::T # intersecting distance
@@ -92,22 +93,47 @@ struct Line{T}
     unit::T
     direction::Point{T}
     function Line(a::Point{T}, b::Point{T}) where {T}
-        p = b-a
-        unit = inv(p*p)
-        new{T}(a, b, unit, p*unit)
+        p = b - a
+        unit = inv(dot(p, p))
+        new{T}(a, b, unit, unit*p)
     end
 end
 Line(a, b) = Line(Point(a), Point(b))
+Line(line::Line{T}, ofs) where {T} = Line(Point{T}(line.a + ofs), Point{T}(line.b + ofs))
+
+function Base.show(io::IO, line::Line)
+    print(io, Line, "((")
+    join(io, line.a, ", ")
+    print(io, "), (")
+    join(io, line.b, ", ")
+    print(io, "))")
+end
+
+function shortline(a::Point, b::Point)
+    d = b - a
+    δ = d/(1000*dot(d, d))
+    return Line(a+δ, b-δ)
+end
+shortline(a, b) = shortline(Point(a), Point(b))
 
 function intersect_triangle(l::Line{T}, t::Triangle) where {T}
-    denom = t.normal*l.direction
+    denom = dot(t.normal, l.direction)
     iszero(denom) && return Intersection{T}()
-    ri = t.normal*(t.a - l.a) / denom
-    origin, direction = ri ≥ 0 ? (l.a, l.direction) : (l.b, -l.direction)
-    plane_intersection =  abs(ri) * direction + origin
+    ri = dot(t.normal, (t.a - l.a)) / denom
+    origin = l.a
+    direction = l.direction
+    sign = false
+    if ri < 0
+        origin = l.b
+        direction = -l.direction
+        ri = - dot(t.normal, (t.a - l.b)) / denom
+        sign = true
+        @assert ri ≥ 0
+    end
+    plane_intersection =  ri * direction + origin
     w = plane_intersection - t.a
-    wv1 = w*t.v1
-    wv2 = w*t.v2
+    wv1 = dot(w, t.v1)
+    wv2 = dot(w, t.v2)
     s_intersection = (t.v1v2*wv2 - t.v2v2*wv1) / t.denom
     s_intersection < 0 && return Intersection{T}()
     s_intersection > 1 && return Intersection{T}()
@@ -115,8 +141,16 @@ function intersect_triangle(l::Line{T}, t::Triangle) where {T}
     t_intersection < 0 && return Intersection{T}()
     t_intersection > 1 && return Intersection{T}()
     s_intersection + t_intersection > 1 && return Intersection{T}()
-    # @assert t.a + s_intersection*t.v1+t_intersection*t.v2 ≈ l.a + ri*l.direction
-    return Intersection{T}(ri*l.unit, true)
+    if !(t.a + s_intersection*t.v1 + t_intersection*t.v2 ≈ origin + ri*direction)
+        @show t
+        @show l
+        @show l.a + ri*l.direction
+        @show origin + abs(ri)*direction
+        @show denom, ri, wv1, wv2, s_intersection, t_intersection
+        @assert false
+    end
+    rescaled_ri = ri*l.unit
+    return Intersection{T}(ifelse(sign, one(T) - rescaled_ri, rescaled_ri), true)
 end
 
 end # module TriangleIntersect

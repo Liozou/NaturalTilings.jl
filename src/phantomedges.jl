@@ -161,7 +161,7 @@ function identify_junction(r1::Vector{PeriodicVertex{D}}, r2, r3) where D
     return PeriodicEdge{D}(xa, xb, ofsb .- ofsa), ia1, ib1, ia2, ib2, ia3, ib3
 end
 
-function find_phantomedges(erings::Vector{Vector{Int}}, rings::Vector{Vector{PeriodicVertex{D}}}, kp::EdgeDict{D}) where D
+function find_phantomedges(erings::Vector{Vector{Int}}, rings::Vector{Vector{PeriodicVertex{D}}}, kp::EdgeDict{D}, new_rings_idx) where D
     n = length(erings)
     eringdict = Dict{Vector{Int},Int}(x => i for (i,x) in enumerate(erings))
     junctions = PeriodicEdge{D}[] # the list of newly added edges
@@ -180,7 +180,8 @@ function find_phantomedges(erings::Vector{Vector{Int}}, rings::Vector{Vector{Per
     buffer = Int[]
     eras = ERingAttributions(erings, kp)
     encountered = BitVector(undef, n)
-    for (i1, er1) in enumerate(erings)
+    for i1 in new_rings_idx
+        er1 = erings[i1]
         len1 = length(er1)
         r1 = rings[i1]
         encountered .= false
@@ -225,11 +226,10 @@ function find_phantomedges(erings::Vector{Vector{Int}}, rings::Vector{Vector{Per
     return junctions, junctions_per_ring, keep
 end
 
-
-function add_phantomedges!(erings::Vector{Vector{Int}}, rings::Vector{Vector{PeriodicVertex{D}}}, kp::EdgeDict{D}) where D
-    junctions, junctions_per_ring, rings_with_junctions = find_phantomedges(erings, rings, kp)
-    max_realedge = length(kp.direct) # beyond are indices of new edges, which are not real ones.
+function add_phantomedges!(erings::Vector{Vector{Int}}, rings::Vector{Vector{PeriodicVertex{D}}}, kp::EdgeDict{D}, new_rings_idx::Vector{Int}) where D
+    junctions, junctions_per_ring, rings_with_junctions = find_phantomedges(erings, rings, kp, new_rings_idx)
     isempty(junctions) && return 0
+    max_realedge = length(kp.direct) # beyond are indices of new edges, which are not real ones.
     for (src, (dst, ofs)) in junctions
         for outer_ofs in PeriodicGraphs.cages_around(PeriodicGraph{D}(), 2)
             # update kp with the indices of the new edges
@@ -263,6 +263,9 @@ function add_phantomedges!(erings::Vector{Vector{Int}}, rings::Vector{Vector{Per
     append!(rings, new_rings)
     append!(erings, new_erings)
     I = sortperm(rings; by=length)
+    n = length(new_rings)
+    resize!(new_rings_idx, n)
+    unsafe_copyto!(new_rings_idx, 1, invperm(I), length(I) - n, n)
     permute!(rings, I)
     permute!(erings, I)
     return max_realedge

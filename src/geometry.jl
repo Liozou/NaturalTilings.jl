@@ -1,36 +1,52 @@
 
-include("TriangleIntersect.jl")
-using .TriangleIntersect
-
 """
-    TriangleIterator{T} <: AbstractVector{NTuple{3,SVector{3,T}}}
+    PseudoTriangleIterator{T} <: AbstractVector{NTuple{3,SVector{3,T}}}
 
 Iterator over a triangulation of a cycle.
 
 If the cycle is a triangle itself, simply yield the cycle. Otherwise, yield the triangles
-starting from the center of the cycle and going through two consecutive vertices.
+starting from the center of the cycle and going through two consecutive vertices of the
+cycle.
 """
-struct TriangleIterator{T,U<:AbstractVector{PeriodicVertex3D}} <: AbstractVector{NTuple{3,SVector{3,T}}}
+struct PseudoTriangleIterator{T,U<:AbstractVector{PeriodicVertex3D}} <: AbstractVector{NTuple{3,SVector{3,T}}}
     pge::PeriodicGraphEmbedding3D{T}
     cycle::U
     center::SVector{3,T}
 end
 
-Base.size(ti::TriangleIterator) = begin n = length(ti.cycle); n == 3 ? (1,) : (n,) end
-Base.IndexStyle(::Type{TriangleIterator{T}}) where {T} = Base.IndexLinear()
-function Base.getindex(ti::TriangleIterator{T}, i::Int) where T
-    pos = ti.pge
+Base.size(pti::PseudoTriangleIterator) = begin n = length(pti.cycle); n == 3 ? (1,) : (n,) end
+Base.IndexStyle(::Type{PseudoTriangleIterator{T}}) where {T} = Base.IndexLinear()
+function Base.getindex(pti::PseudoTriangleIterator, i::Int)
+    pos = pti.pge
     
-    i == 1 && length(ti.cycle) == 3 && return (pos[ti.cycle[1]], pos[ti.cycle[2]], pos[ti.cycle[3]])
-    i == length(ti.cycle) && return (ti.center, pos[ti.cycle[end]], pos[ti.cycle[1]])
-    return (ti.center, pos[ti.cycle[i]], pos[ti.cycle[i+1]])
+    i == 1 && length(pti.cycle) == 3 && return (pos[pti.cycle[1]], pos[pti.cycle[2]], pos[pti.cycle[3]])
+    i == length(pti.cycle) && return (pti.center, pos[pti.cycle[end]], pos[pti.cycle[1]])
+    return (pti.center, pos[pti.cycle[i]], pos[pti.cycle[i+1]])
 end
 
-function intersect_triangleiter(line::Line, cycle::TriangleIterator)
+struct TriangleIterator{T,U<:AbstractVector{PeriodicVertex3D}} <: AbstractVector{Triangle{T}}
+    pti::PseudoTriangleIterator{T,U}
+end
+TriangleIterator(pge, cycle, center) = TriangleIterator(PseudoTriangleIterator(pge, cycle, center))
+Base.size(ti::TriangleIterator) = size(ti.pti)
+Base.IndexStyle(::Type{TriangleIterator{T}}) where {T} = Base.IndexLinear()
+Base.getindex(ti::TriangleIterator, i::Int) = Triangle(ti.pti[i])
+
+
+struct OffsetTriangleIterator{T,U<:AbstractVector{Triangle{T}},S} <: AbstractVector{Triangle{T}}
+    triangles::U
+    ofs::S
+end
+Base.size(oti::OffsetTriangleIterator) = (length(oti.triangles),)
+Base.IndexStyle(::Type{OffsetTriangleIterator{T,U,S}}) where {T,U,S} = Base.IndexLinear()
+Base.getindex(oti::OffsetTriangleIterator, i::Int) = Triangle(oti.triangles[i], oti.ofs)
+
+
+function intersect_triangleiter(line::Line, triangleiter::AbstractVector{Triangle{T}}) where T
     kind = 0
     above = false
-    for (a,b,c) in cycle
-        inter = intersect_triangle(line, Triangle(a, b, c))
+    for t in triangleiter
+        inter = intersect_triangle(line, t)
         if inter.is_intersection
             if 0 < inter.dist < 1
                 return 2 # the segment crosses the cycle
@@ -59,9 +75,7 @@ of its rings. Return:
 function intersect_polyedra(tiling::Tiling{D}, line::Line, tile::Vector{PeriodicVertex{D}}) where D
     kind = 0
     for (x, ofs) in tile
-        cycle = PeriodicGraphs.OffsetVertexIterator{D}(ofs, tiling.rings[x])
-        iter = TriangleIterator(tiling.pge, cycle, tiling.ringcenters[x] + ofs)
-        inter = intersect_triangleiter(line, iter)
+        inter = intersect_triangleiter(line, OffsetTriangleIterator(tiling.triangles[x], ofs))
         if inter != 0
             if abs(inter) > 1
                 return inter
