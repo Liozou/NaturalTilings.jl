@@ -10,6 +10,7 @@ end
 
 struct Tiling{D,T}
     pge::PeriodicGraphEmbedding{D,T}
+    g::PeriodicGraph{D} # pge.g possibly including new edges
     rings::Vector{Vector{PeriodicVertex{D}}} # each sublist is the list of vertices
     erings::Vector{Vector{Int}} # each sublist is the list of edge indices in kp of a ring
     tiles::Vector{Vector{PeriodicVertex{D}}} # each sublist is a list of indices of rings
@@ -24,7 +25,7 @@ struct Tiling{D,T}
     kp::EdgeDict{D} # correspondance between edges and their index
 end
 
-function Tiling(pge::PeriodicGraphEmbedding{D,T}, rings, erings, kp) where {D,T}
+function Tiling(pge::PeriodicGraphEmbedding{D,T}, g, rings, erings, kp) where {D,T}
     n = length(erings)
     ringsofedge = Dict{PeriodicEdge{D},Vector{PeriodicVertex{D}}}()
     rgraph = PeriodicGraph{D}(n)
@@ -56,7 +57,7 @@ function Tiling(pge::PeriodicGraphEmbedding{D,T}, rings, erings, kp) where {D,T}
     tiledict = Dict{Vector{Int},Int}()
     ringcenters = D == 3 ? [cycle_center(r, pge) for r in rings] : SVector{3,T}[]
     triangles = D == 3 ? [collect(TriangleIterator(pge, r, center)) for (r, center) in zip(rings, ringcenters)] : Vector{Triangle{T}}[]
-    return Tiling{D,T}(pge, rings, erings, tiles, tileedges, tilevertices, tiledict, tilesofring, ringsofedge, rgraph, ringcenters, triangles, kp)
+    return Tiling{D,T}(pge, g, rings, erings, tiles, tileedges, tilevertices, tiledict, tilesofring, ringsofedge, rgraph, ringcenters, triangles, kp)
 end
 
 
@@ -133,13 +134,15 @@ struct TilingAroundCycle{D}
     gauss::IterativeGaussianEliminationDecomposition
     encountered::Set{PeriodicVertex{D}}
     Q::Vector{Tuple{PeriodicVertex{D},Int}}
+    tracks::Vector{Vector{Vector{Int32}}}
     restart::Base.RefValue{Int}
 end
 function TilingAroundCycle{D}(i) where D
     gauss = IterativeGaussianEliminationDecomposition()
     encountered = Set{PeriodicVertex{D}}((PeriodicVertex{D}(i),))
+    tracks = Vector{Vector{Vector{Int32}}}(undef, 1)
     Q = [(PeriodicVertex{D}(i), 0)]
-    return TilingAroundCycle{D}(gauss, encountered, Q, Ref(1))
+    return TilingAroundCycle{D}(gauss, encountered, Q, tracks, Ref(1))
 end
 
 """
@@ -149,6 +152,25 @@ Retrieve the ering in `tiling` corresponding to ring number `i` offset by `ofs`.
 """
 function ering_at_pos(tiling::Tiling{D}, (i, ofs)::PeriodicVertex{D}) where D
     return convert_to_ering(tiling.rings[i], tiling.kp, ofs)
+end
+
+function minimal_track!(gauss, tracks)
+    track = retrieve_track!(gauss)
+    sort!(track)
+    buffer = Int32[]
+    @label restart
+    for i in track
+        if isassigned(tracks, i)
+            for t in tracks[i]
+                PeriodicGraphs.symdiff_cycles!(buffer, track, t)
+                if length(buffer) < length(track) # TODO: handle ≤ ?
+                    track, buffer = buffer, track
+                    @goto restart
+                end
+            end
+        end
+    end
+    return track
 end
 
 """
@@ -163,18 +185,27 @@ function explore_around_cycle!(tac::TilingAroundCycle{D}, tiling::Tiling{D}, unt
     restart = tac.restart[]
     restart > length(Q) && return Vector{PeriodicVertex{D}}[]
     maxdist = untilfirstfound ? typemax(Int) : isone(restart) ? 1 : last(Q[restart]) + 1
-    newrestart = restart
     tiles = Vector{PeriodicVertex{D}}[]
+    tracks = tac.tracks
     for (u, dist) in Iterators.rest(Q, restart)
         dist > maxdist && break
-        newrestart += 1
+        restart += 1
         if gaussian_elimination!(tac.gauss, ering_at_pos(tiling, u)) # a sum of previously encountered rings is empty
-            track = retrieve_track!(tac.gauss)
-            if last(track) == 1 # otherwise the tile does not contain the current cycle.
+            track = minimal_track!(tac.gauss, tracks)
+            if first(track) == 1 # otherwise the tile does not contain the current cycle.
                 if untilfirstfound
                     maxdist = dist
                 end
                 push!(tiles, sort!([first(Q[x]) for x in track]))
+            else
+                resize!(tracks, restart-1)
+                for i in track
+                    if isassigned(tracks, i)
+                        push!(tracks[i], track)
+                    else
+                        tracks[i] = [track]
+                    end
+                end
             end
         end
         for x in neighbors(tiling.rgraph, u)
@@ -183,7 +214,7 @@ function explore_around_cycle!(tac::TilingAroundCycle{D}, tiling::Tiling{D}, unt
             push!(Q, (x, dist+1))
         end
     end
-    tac.restart[] = newrestart
+    tac.restart[] = restart
     return tiles
 end
 

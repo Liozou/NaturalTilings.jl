@@ -34,7 +34,7 @@ function neighboring_edges(_edges::Vector{Int}, vertices::Vector{PeriodicVertex{
     edges = Set{Int}(_edges)
     returned_edges = Int[]
     for x in vertices
-        for y in neighbors(tiling.pge.g, x)
+        for y in neighbors(tiling.g, x)
             e = get!(tiling.kp, minmax(x, y))
             e in edges && continue
             push!(returned_edges, e)
@@ -89,24 +89,20 @@ function canonical_tile!(tiling::Tiling{D}, tile::Vector{PeriodicVertex{D}}, che
             else
                 # @error "Ring $x of new tile $n joins more than 2 tiles."
 
-                # @show fst
-                # @show lst
-                # @show new
-                # @show x
-                # @show normalized
+                @show x, fst, lst
 
-                pop!(tiling.tiles)
-                pop!(tiling.tileedges)
-                tiling.tiledict[uniqueedges] = -1
-                for j in 1:(i-1)
-                    y = normalized[j]
-                    fst, lst = tiling.tilesofring[x.v]
-                    if iszero(first(lst))
-                        tiling.tilesofring[x.v] = (lst, lst)
-                    else
-                        tiling.tilesofring[x.v] = (fst, PeriodicVertex{D}(0))
-                    end
-                end
+                # pop!(tiling.tiles)
+                # pop!(tiling.tileedges)
+                # tiling.tiledict[uniqueedges] = -1
+                # for j in 1:(i-1)
+                #     y = normalized[j]
+                #     fst, lst = tiling.tilesofring[x.v]
+                #     if iszero(first(lst))
+                #         tiling.tilesofring[x.v] = (lst, lst)
+                #     else
+                #         tiling.tilesofring[x.v] = (fst, PeriodicVertex{D}(0))
+                #     end
+                # end
 
                 return PeriodicVertex{D}(-1) # flags an error
             end
@@ -134,57 +130,33 @@ function add_rtile!(rt::Vector{PeriodicVertex{D}}, gauss, known_htiles, tiling, 
     return tile
 end
 
-function tilingof(pge::PeriodicGraphEmbedding{D}, depth::Integer=10, symmetries::AbstractSymmetryGroup=NoSymmetryGroup(pge.g), dist::DistanceRecord=DistanceRecord(pge.g,depth)) where D
-    g = deepcopy(pge.g)
+function tilingof(pge::PeriodicGraphEmbedding{D}, depth::Integer=10, symmetries::AbstractSymmetryGroup=NoSymmetryGroup(pge.g), dist::DistanceRecord=DistanceRecord(pge.g,depth), stophere=missing) where D
+    g = copy(pge.g)
     _rings, symms, erings, kp = strong_erings(g, depth, symmetries, dist)
     rings = Vector{PeriodicVertex{D}}[[reverse_hash_position(x, g) for x in r] for r in _rings]
 
     max_realedges = Int[]
 
     new_rings_idx = collect(1:length(rings))
-    max_realedge = add_phantomedges!(erings, rings, kp, new_rings_idx)
+    junctions, jcounter, junctions_per_ring, keep = find_phantomedges(erings, rings, kp, copy(new_rings_idx))
+    for (e, count) in zip(junctions, jcounter)
+        count == 3 || add_edge!(g, e)
+    end
+    max_realedge = add_phantomedges!(erings, rings, kp, new_rings_idx, junctions, jcounter, junctions_per_ring, keep)
     while !iszero(max_realedge)
-        max_realedge = add_phantomedges!(erings, rings, kp, new_rings_idx)
+        junctions, jcounter, junctions_per_ring, keep = find_phantomedges(erings, rings, kp, copy(new_rings_idx))
+        for (e, count) in zip(junctions, jcounter)
+            count == 3 || add_edge!(g, e)
+        end
+        max_realedge = add_phantomedges!(erings, rings, kp, new_rings_idx, junctions, jcounter, junctions_per_ring, keep)
         push!(max_realedges, max_realedge)
     end
-    
-    # # TODO: remove
-    # junctions2, = find_phantomedges(erings, rings, kp)
-    # println(junctions2)
-    # # for e in junctions2
-    # #     add_edge!(g, e)
-    # # end
-    # _rings, symms, erings, kp = strong_erings(g, depth, symmetries, dist)
-    # rings = Vector{PeriodicVertex{D}}[[reverse_hash_position(x, g) for x in r] for r in _rings]
-    # add_phantomedges!(erings, rings, kp)
-    # junctions, = find_phantomedges(erings, rings, kp)
-    # println(junctions)
-    # add_phantomedges!(erings, rings, kp)
-    # junctions, = find_phantomedges(erings, rings, kp)
-    # println(junctions)
-
-    # # while !iszero(max_realedge)
-    # #     @show max_realedge
-    # #     max_realedge = add_phantomedges!(erings, rings, kp)
-    # # end
-
-    # # max_realedges = Int[]
-    # # junctions, = find_phantomedges(erings, rings, kp)
-    # # while !isempty(junctions)
-    # #     push!(max_realedges, length(kp.direct))
-    # #     for e in junctions
-    # #         add_edge!(g, e)
-    # #     end
-    # #     _rings, symms, erings, kp = strong_erings(g, depth, symmetries, dist)
-    # #     rings = Vector{PeriodicVertex{D}}[[reverse_hash_position(x, g) for x in r] for r in _rings]
-    # #     junctions, = find_phantomedges(erings, rings, kp)
-    # # end
-    # # @show max_realedges
+    # export_vtf("/tmp/g2.vtf", PeriodicGraphEmbedding(g, pge.pos, pge.cell)) # TODO: remove
 
     if !isempty(max_realedges)
         symms = NoSymmetryGroup(length(rings)) # TODO: adapt the symmetry instead
     end
-    tiling = Tiling(pge, rings, erings, kp)
+    tiling = Tiling(pge, g, rings, erings, kp)
     uniquesymms = unique(symms)
     m = length(rings)
     exploration = [TilingAroundCycle{D}(u) for u in uniquesymms]
@@ -194,12 +166,12 @@ function tilingof(pge::PeriodicGraphEmbedding{D}, depth::Integer=10, symmetries:
     num_tiles = 0
     num_iter = 0
     known_htiles = Set{Vector{Int}}()
-    checkgeometry = false # FIXME: false
+    checkgeometry = false
     while !isempty(missing2tiles) && num_iter < 3
         num_iter += 1
         new_rtiles = Vector{PeriodicVertex{D}}[] # each sublist is the list of rings of a tile
-        for e in missing2tiles
-            tac = exploration[e]
+        for r in missing2tiles
+            tac = exploration[r]
             append!(new_rtiles, explore_around_cycle!(tac, tiling))
         end
         isempty(new_rtiles) && continue
@@ -208,6 +180,7 @@ function tilingof(pge::PeriodicGraphEmbedding{D}, depth::Integer=10, symmetries:
         for rt in new_rtiles
             tile_idx = add_rtile!(rt, etiles_gauss, known_htiles, tiling, m, checkgeometry)
             if tile_idx < 0 # error occured: one ring joins 2 or more tiles
+                stophere isa Bool && (stophere = true; break)
                 empty!(new_rtiles)
                 break
             end
@@ -225,20 +198,24 @@ function tilingof(pge::PeriodicGraphEmbedding{D}, depth::Integer=10, symmetries:
                 end
             end
         end
+        stophere isa Bool && stophere && break
 
         @assert num_tiles == length(tiling.tiles) || isempty(new_rtiles)
         if !isempty(new_rtiles)
             for i in new_idx:num_tiles
                 for (v, _) in tiling.tiles[i]
                     if tilecounter[v] == 2 # # error occured: one ring joins 2 or more tiles
+                        stophere isa Bool && (stophere = true; break)
                         empty!(new_rtiles)
                         break
                     end
                     tilecounter[v] += 1
                 end
+                stophere isa Bool && stophere && break
                 isempty(new_rtiles) && break
             end
         end
+        stophere isa Bool && stophere && break
 
         if isempty(new_rtiles) # error occured: one ring joins 2 or more tiles
             empty!(tiling.tiles)
@@ -269,3 +246,6 @@ function tilingof(pge::PeriodicGraphEmbedding{D}, depth::Integer=10, symmetries:
 end
 
 tilingof(pge::PeriodicGraphEmbedding{D}, symmetries::AbstractSymmetryGroup, dist::DistanceRecord=DistanceRecord(pge.g,10)) where {D} = tilingof(pge, 10, symmetries, dist)
+
+# for debugging purpose # TODO: remove
+tilingof(pge::PeriodicGraphEmbedding, ::Bool) = tilingof(pge, 10, NoSymmetryGroup(pge.g), DistanceRecord(pge.g,10), false)

@@ -118,12 +118,13 @@ shortline(a, b) = shortline(Point(a), Point(b))
 
 function intersect_triangle(l::Line{T}, t::Triangle) where {T}
     denom = dot(t.normal, l.direction)
-    iszero(denom) && return Intersection{T}()
+    ε = T <: AbstractFloat ? 4eps(T) : zero(T)
+    abs(denom) ≤ ε && return Intersection{T}()
     ri = dot(t.normal, (t.a - l.a)) / denom
     origin = l.a
     direction = l.direction
     sign = false
-    if ri < 0
+    if ri < ε
         origin = l.b
         direction = -l.direction
         ri = - dot(t.normal, (t.a - l.b)) / denom
@@ -135,12 +136,12 @@ function intersect_triangle(l::Line{T}, t::Triangle) where {T}
     wv1 = dot(w, t.v1)
     wv2 = dot(w, t.v2)
     s_intersection = (t.v1v2*wv2 - t.v2v2*wv1) / t.denom
-    s_intersection < 0 && return Intersection{T}()
-    s_intersection > 1 && return Intersection{T}()
+    s_intersection < -ε && return Intersection{T}()
+    s_intersection > 1+ε && return Intersection{T}()
     t_intersection = (t.v1v2*wv1 - t.v1v1*wv2) / t.denom
-    t_intersection < 0 && return Intersection{T}()
-    t_intersection > 1 && return Intersection{T}()
-    s_intersection + t_intersection > 1 && return Intersection{T}()
+    t_intersection < -ε && return Intersection{T}()
+    t_intersection > 1+ε && return Intersection{T}()
+    s_intersection + t_intersection > 1+ε && return Intersection{T}()
     if !(t.a + s_intersection*t.v1 + t_intersection*t.v2 ≈ origin + ri*direction)
         @show t
         @show l

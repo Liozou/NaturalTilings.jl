@@ -161,10 +161,25 @@ function identify_junction(r1::Vector{PeriodicVertex{D}}, r2, r3) where D
     return PeriodicEdge{D}(xa, xb, ofsb .- ofsa), ia1, ib1, ia2, ib2, ia3, ib3
 end
 
-function find_phantomedges(erings::Vector{Vector{Int}}, rings::Vector{Vector{PeriodicVertex{D}}}, kp::EdgeDict{D}, new_rings_idx) where D
+"""
+    find_phantomedges(erings::Vector{Vector{Int}}, rings::Vector{Vector{PeriodicVertex{D}}}, kp::EdgeDict{D}, rings_idx) where D
+
+Identify the set of junction points that split conjoined rings, i.e. two rings whose sum is
+another ring which is smaller or equal in size. One of the two rings must be have its index
+in `rings_idx` to be considered.
+
+Return a quadruplet `(junctions, jcounter, junctions_per_ring, keep)` where
+- `junctions` is a list of `PeriodicEdge{D}` obtained by [`NaturalTilings.identify_junction`](@ref).
+- `jcounter[i]` is the number of rings that have `x = junctions[i]` among their junctions.
+- `junctions_per_ring[i]` where ``i ∈ keep`` is a list of triplets `(x, j1, j2)` where `x`
+  is the index of the corresponding junction in `junctions`, and `rings[i][j1]` and
+  `rings[i][j2]` are the corresponding two junction points in the ring.
+"""
+function find_phantomedges(erings::Vector{Vector{Int}}, rings::Vector{Vector{PeriodicVertex{D}}}, kp::EdgeDict{D}, rings_idx) where D
     n = length(erings)
     eringdict = Dict{Vector{Int},Int}(x => i for (i,x) in enumerate(erings))
     junctions = PeriodicEdge{D}[] # the list of newly added edges
+    ring_per_junctions = BitSet[]
     junctions_dict = Dict{PeriodicEdge{D},Int}() # reverse map to junctions
     junctions_per_ring = Vector{Vector{Tuple{Int,Int,Int}}}(undef, n)
     has_junctions = falses(n)
@@ -180,7 +195,7 @@ function find_phantomedges(erings::Vector{Vector{Int}}, rings::Vector{Vector{Per
     buffer = Int[]
     eras = ERingAttributions(erings, kp)
     encountered = BitVector(undef, n)
-    for i1 in new_rings_idx
+    for i1 in rings_idx
         er1 = erings[i1]
         len1 = length(er1)
         r1 = rings[i1]
@@ -201,10 +216,15 @@ function find_phantomedges(erings::Vector{Vector{Int}}, rings::Vector{Vector{Per
                 r2 = PeriodicGraphs.OffsetVertexIterator{D}(ofs_ref, rings[i2])
                 junction, i1a, i1b, i2a, i2b, i3a, i3b = identify_junction(r1, r2, r3)
                 junction_idx = get!(junctions_dict, junction, length(junctions)+1)
-                junction_idx > length(junctions) && push!(junctions, junction)
+                if junction_idx > length(junctions)
+                    push!(junctions, junction)
+                    push!(ring_per_junctions, BitSet())
+                end
+                push!(ring_per_junctions[junction_idx], i1, i2, i3)
+
                 for i in (i1, i2, i3)
                     if !has_junctions[i]
-                        junctions_per_ring[i] = Tuple{PeriodicVertex{D},Int,Int}[]
+                        junctions_per_ring[i] = Tuple{Int,Int,Int}[]
                         has_junctions[i] = true
                     end
                 end
@@ -223,12 +243,12 @@ function find_phantomedges(erings::Vector{Vector{Int}}, rings::Vector{Vector{Per
             push!(keep, k)
         end
     end
-    return junctions, junctions_per_ring, keep
+    return junctions, map(length, ring_per_junctions), junctions_per_ring, keep
 end
 
-function add_phantomedges!(erings::Vector{Vector{Int}}, rings::Vector{Vector{PeriodicVertex{D}}}, kp::EdgeDict{D}, new_rings_idx::Vector{Int}) where D
-    junctions, junctions_per_ring, rings_with_junctions = find_phantomedges(erings, rings, kp, new_rings_idx)
-    isempty(junctions) && return 0
+function add_phantomedges!(erings::Vector{Vector{Int}}, rings::Vector{Vector{PeriodicVertex{D}}}, kp::EdgeDict{D}, new_rings_idx::Vector{Int}, junctions, jcounter, junctions_per_ring, rings_with_junctions) where D
+    # isempty(junctions) && return 0
+    all(==(3), jcounter) && return 0
     max_realedge = length(kp.direct) # beyond are indices of new edges, which are not real ones.
     for (src, (dst, ofs)) in junctions
         for outer_ofs in PeriodicGraphs.cages_around(PeriodicGraph{D}(), 2)
@@ -245,7 +265,8 @@ function add_phantomedges!(erings::Vector{Vector{Int}}, rings::Vector{Vector{Per
         n = length(ring)
         g = PeriodicGraph{0}(n, PeriodicEdge{0}[(i, i+1) for i in 1:(n-1)])
         add_edge!(g, PeriodicEdge{0}(1, n))
-        for (_, src, dst) in junctions_per_ring[k]
+        for (i, src, dst) in junctions_per_ring[k]
+            jcounter[i] == 3 && continue
             add_edge!(g, PeriodicEdge{0}(src, dst))
         end
         subrings, = strong_rings(g, 60) # 60 is a gross overestimation but it should be costless here since ndims(g) == 0
@@ -265,7 +286,7 @@ function add_phantomedges!(erings::Vector{Vector{Int}}, rings::Vector{Vector{Per
     I = sortperm(rings; by=length)
     n = length(new_rings)
     resize!(new_rings_idx, n)
-    unsafe_copyto!(new_rings_idx, 1, invperm(I), length(I) - n, n)
+    unsafe_copyto!(new_rings_idx, 1, invperm(I), length(I) - n + 1, n)
     permute!(rings, I)
     permute!(erings, I)
     return max_realedge
