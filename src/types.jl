@@ -156,19 +156,25 @@ end
 
 function minimal_track!(gauss, tracks)
     track = retrieve_track!(gauss)
+    #====================================================================#
+    # track[1], track[end] = track[end], track[1]
+    # return track
+    #====================================================================#
     sort!(track)
     buffer = Int32[]
-    @label restart
-    for i in track
-        if isassigned(tracks, i)
-            for t in tracks[i]
+    i = 1
+    while i < length(track)
+        j = track[i]
+        if isassigned(tracks, j%Int)
+            for t in tracks[j]
                 PeriodicGraphs.symdiff_cycles!(buffer, track, t)
                 if length(buffer) < length(track) # TODO: handle ≤ ?
                     track, buffer = buffer, track
-                    @goto restart
+                    break
                 end
             end
         end
+        i += 1
     end
     return track
 end
@@ -200,7 +206,7 @@ function explore_around_cycle!(tac::TilingAroundCycle{D}, tiling::Tiling{D}, unt
             else
                 resize!(tracks, restart-1)
                 for i in track
-                    if isassigned(tracks, i)
+                    if isassigned(tracks, i%Int)
                         push!(tracks[i], track)
                     else
                         tracks[i] = [track]
