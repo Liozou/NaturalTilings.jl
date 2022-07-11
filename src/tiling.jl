@@ -136,22 +136,26 @@ function tilingof(pge::PeriodicGraphEmbedding{D}, depth::Integer=10, symmetries:
     rings = Vector{PeriodicVertex{D}}[[reverse_hash_position(x, g) for x in r] for r in _rings]
 
     max_realedges = Int[]
+    # export_vtf("/tmp/g1.vtf", PeriodicGraphEmbedding(g, pge.pos, pge.cell), nothing, 3) # TODO: remove
 
     new_rings_idx = collect(1:length(rings))
-    junctions, jcounter, junctions_per_ring, keep = find_phantomedges(erings, rings, kp, copy(new_rings_idx))
+    junctions, jcounter, junctions_per_ring, keep = find_phantomedges(erings, rings, kp, nv(g), copy(new_rings_idx))
     for (e, count) in zip(junctions, jcounter)
-        count == 3 || add_edge!(g, e)
+        count == 3 && continue
+        add_edge!(g, e)
     end
+    # export_vtf("/tmp/g2.vtf", PeriodicGraphEmbedding(g, pge.pos, pge.cell), nothing, 3) # TODO: remove
     max_realedge = add_phantomedges!(erings, rings, kp, new_rings_idx, junctions, jcounter, junctions_per_ring, keep)
     while !iszero(max_realedge)
-        junctions, jcounter, junctions_per_ring, keep = find_phantomedges(erings, rings, kp, copy(new_rings_idx))
+        junctions, jcounter, junctions_per_ring, keep = find_phantomedges(erings, rings, kp, nv(g), copy(new_rings_idx))
         for (e, count) in zip(junctions, jcounter)
-            count == 3 || add_edge!(g, e)
+            count == 3 && continue
+            add_edge!(g, e)
         end
+        # export_vtf("/tmp/g$max_realedge.vtf", PeriodicGraphEmbedding(g, pge.pos, pge.cell), nothing, 3) # TODO: remove
         max_realedge = add_phantomedges!(erings, rings, kp, new_rings_idx, junctions, jcounter, junctions_per_ring, keep)
         push!(max_realedges, max_realedge)
     end
-    # export_vtf("/tmp/g2.vtf", PeriodicGraphEmbedding(g, pge.pos, pge.cell)) # TODO: remove
 
     if !isempty(max_realedges)
         symms = NoSymmetryGroup(length(rings)) # TODO: adapt the symmetry instead

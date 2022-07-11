@@ -120,7 +120,7 @@ end
 Given two rings `r1` and `r2` and their sum `r3`, a ring smaller or equal in size, find the
 positions of the two junctions, that is the two vertices common to all three rings.
 """
-function identify_junction(r1::Vector{PeriodicVertex{D}}, r2, r3) where D
+function identify_junction(r1::Vector{PeriodicVertex{D}}, r2, r3=nothing) where D
     len1 = length(r1)
     len2 = length(r2)
     start1 = 1
@@ -130,43 +130,62 @@ function identify_junction(r1::Vector{PeriodicVertex{D}}, r2, r3) where D
         start2 = _start2
     else
         start1 = 1 + length(r1)÷2
-        start2 = findfirst(==(r1[start1]), r2)
+        _start2 = findfirst(==(r1[start1]), r2)
+        if r3 isa Nothing && _start2 isa Nothing
+            return nothing # more than 2 junctions
+        else
+            start2 = _start2
+        end
     end
     after1 = r1[start1+1]
     after2 = r2[mod1(start2+1, len2)]
     direct = 2*(after1 == after2 || r1[mod1(start1-1, len1)] == r2[mod1(start2-1, len2)])-1
-    ia1 = mod1(start1 + 1, len1)
-    ia2 = mod1(start2 + direct, len2)
-    ib1 = mod1(start1 - 1, len1)
-    ib2 = mod1(start2 - direct, len2)
-    while r1[ia1] == r2[ia2]
-        ia1 = mod1(ia1 + 1, len1)
-        ia2 = mod1(ia2 + direct, len2)
+    _ia1 = mod1(start1 + 1, len1)
+    _ia2 = mod1(start2 + direct, len2)
+    _ib1 = mod1(start1 - 1, len1)
+    _ib2 = mod1(start2 - direct, len2)
+    while r1[_ia1] == r2[_ia2]
+        _ia1 = mod1(_ia1 + 1, len1)
+        _ia2 = mod1(_ia2 + direct, len2)
     end
-    while r1[ib1] == r2[ib2]
-        ib1 = mod1(ib1 - 1, len1)
-        ib2 = mod1(ib2 - direct, len2)
+    while r1[_ib1] == r2[_ib2]
+        _ib1 = mod1(_ib1 - 1, len1)
+        _ib2 = mod1(_ib2 - direct, len2)
     end
-    ia1, ib1 = minmax(mod1(ia1 - 1, len1), mod1(ib1 + 1, len1))
-    ia2, ib2 = minmax(mod1(ia2 - direct, len2), mod1(ib2 + direct, len2))
+    ia1, ib1 = minmax(mod1(_ia1 - 1, len1), mod1(_ib1 + 1, len1))
+    ia2, ib2 = minmax(mod1(_ia2 - direct, len2), mod1(_ib2 + direct, len2))
+    iabs = [ia1, ib1, ia2, ib2]
     (xa, ofsa), (xb, ofsb) = minmax(r1[ia1], r1[ib1])
     @assert (PeriodicVertex(xa, ofsa), PeriodicVertex(xb, ofsb)) == minmax(r2[ia2], r2[ib2])
-    ia3 = findfirst(==(r1[ia1]), r3)
-    ib3 = mod1(ia3 + abs(ib1 - ia1), length(r3))
-    if r3[ib3] != r1[ib1]
-        ib3 = mod1(ia3 + len1 - abs(ib1 - ia1), length(r3))
-        @assert r3[ib3] == r1[ib1]
+    if r3 isa Nothing
+        set2 = Set{PeriodicVertex{D}}()
+        while _ia2 != _ib2
+            push!(set2, r2[_ia2])
+            _ia2 = mod1(_ia2 + direct, len2)
+        end
+        while _ia1 != _ib1
+            r1[_ia1] ∈ set2 && return nothing # more than 2 junctions
+            _ia1 = mod1(_ia1 + 1, len1)
+        end
+    else
+        ia3 = findfirst(==(r1[ia1]), r3)
+        ib3 = mod1(ia3 + abs(ib1 - ia1), length(r3))
+        if r3[ib3] != r1[ib1]
+            ib3 = mod1(ia3 + len1 - abs(ib1 - ia1), length(r3))
+            @assert r3[ib3] == r1[ib1]
+        end
+        ia3, ib3 = minmax(ia3, ib3)
+        push!(iabs, ia3, ib3)
     end
-    ia3, ib3 = minmax(ia3, ib3)
-    return PeriodicEdge{D}(xa, xb, ofsb .- ofsa), ia1, ib1, ia2, ib2, ia3, ib3
+    return PeriodicEdge{D}(xa, xb, ofsb .- ofsa), iabs
 end
 
 """
-    find_phantomedges(erings::Vector{Vector{Int}}, rings::Vector{Vector{PeriodicVertex{D}}}, kp::EdgeDict{D}, rings_idx) where D
+    find_phantomedges(erings::Vector{Vector{Int}}, rings::Vector{Vector{PeriodicVertex{D}}}, kp::EdgeDict{D}, n, rings_idx) where D
 
 Identify the set of junction points that split conjoined rings, i.e. two rings whose sum is
-another ring which is smaller or equal in size. One of the two rings must be have its index
-in `rings_idx` to be considered.
+another cycle which is smaller or equal in size. One of the two rings must be have its
+index in `rings_idx` to be considered. `n` is the number of vertices of the graph.
 
 Return a quadruplet `(junctions, jcounter, junctions_per_ring, keep)` where
 - `junctions` is a list of `PeriodicEdge{D}` obtained by [`NaturalTilings.identify_junction`](@ref).
@@ -175,16 +194,11 @@ Return a quadruplet `(junctions, jcounter, junctions_per_ring, keep)` where
   is the index of the corresponding junction in `junctions`, and `rings[i][j1]` and
   `rings[i][j2]` are the corresponding two junction points in the ring.
 """
-function find_phantomedges(erings::Vector{Vector{Int}}, rings::Vector{Vector{PeriodicVertex{D}}}, kp::EdgeDict{D}, rings_idx) where D
-    n = length(erings)
+function find_phantomedges(erings::Vector{Vector{Int}}, rings::Vector{Vector{PeriodicVertex{D}}}, kp::EdgeDict{D}, n, rings_idx) where D
+    m = length(erings)
     eringdict = Dict{Vector{Int},Int}(x => i for (i,x) in enumerate(erings))
     junctions = PeriodicEdge{D}[] # the list of newly added edges
-    ring_per_junctions = BitSet[]
     junctions_dict = Dict{PeriodicEdge{D},Int}() # reverse map to junctions
-    junctions_per_ring = Vector{Vector{Tuple{Int,Int,Int}}}(undef, n)
-    has_junctions = falses(n)
-    # junctions_per_ring[i] is the list of tuples (x, j, k) indicating that junction x is
-    # present between vertices j and k of rings[i].
     known_erings = Dict{Vector{Int},Int}()
     for (i,e) in enumerate(erings)
         e2 = copy(e)
@@ -194,7 +208,7 @@ function find_phantomedges(erings::Vector{Vector{Int}}, rings::Vector{Vector{Per
     end
     buffer = Int[]
     eras = ERingAttributions(erings, kp)
-    encountered = BitVector(undef, n)
+    encountered = BitVector(undef, m)
     for i1 in rings_idx
         er1 = erings[i1]
         len1 = length(er1)
@@ -209,41 +223,53 @@ function find_phantomedges(erings::Vector{Vector{Int}}, rings::Vector{Vector{Per
                 length(buffer) ≤ min(len1, len2) || continue
                 isempty(buffer) && continue
                 ofs_ear = canonical_ering!(buffer, kp)
-                i3 = get(known_erings, buffer, 0)
-                i3 == 0 && continue
-                r3 = PeriodicGraphs.OffsetVertexIterator{D}(ofs_ear, rings[i3])
+                i3 = get(known_erings, buffer, nothing)
                 _, i2, _, ofs_ref = find_ofs_ref(eri, _i2)
                 r2 = PeriodicGraphs.OffsetVertexIterator{D}(ofs_ref, rings[i2])
-                junction, i1a, i1b, i2a, i2b, i3a, i3b = identify_junction(r1, r2, r3)
+                is = [i1, i2]
+                if i3 isa Nothing
+                    possible_junction = identify_junction(r1, r2)
+                    possible_junction isa Nothing && continue
+                    junction, iabs = possible_junction
+                else
+                    r3 = PeriodicGraphs.OffsetVertexIterator{D}(ofs_ear, rings[i3])
+                    junction, iabs = identify_junction(r1, r2, r3)
+                    push!(is, i3)
+                end
                 junction_idx = get!(junctions_dict, junction, length(junctions)+1)
-                if junction_idx > length(junctions)
-                    push!(junctions, junction)
-                    push!(ring_per_junctions, BitSet())
-                end
-                push!(ring_per_junctions[junction_idx], i1, i2, i3)
-
-                for i in (i1, i2, i3)
-                    if !has_junctions[i]
-                        junctions_per_ring[i] = Tuple{Int,Int,Int}[]
-                        has_junctions[i] = true
-                    end
-                end
-                push!(junctions_per_ring[i1], (junction_idx, i1a, i1b))
-                push!(junctions_per_ring[i2], (junction_idx, i2a, i2b))
-                push!(junctions_per_ring[i3], (junction_idx, i3a, i3b))
+                junction_idx > length(junctions) && push!(junctions, junction)
             end
         end
     end
-    keep = Int[]
-    for k in 1:n
-        if has_junctions[k]
-            x = junctions_per_ring[k]
-            sort!(x)
-            unique!(x)
-            push!(keep, k)
-        end
+
+    junctiongraph = [Tuple{Int, PeriodicVertex{D}}[] for _ in 1:n]
+    for (idx_junction, (j_src, j_dst)) in enumerate(junctions)
+        push!(junctiongraph[j_src], (idx_junction, j_dst))
     end
-    return junctions, map(length, ring_per_junctions), junctions_per_ring, keep
+    ring_per_junctions = BitSet[BitSet() for _ in eachindex(junctions)]
+    junctions_per_ring = Vector{Vector{Tuple{Int,Int,Int}}}(undef, m)
+    rings_with_junctions = Int[]
+    for k in 1:m
+        ring = rings[k]
+        vs = Dict{PeriodicVertex{D},Int}(w => j for (j, w) in enumerate(ring))
+        flag = false
+        for (i, (v, v_ofs)) in enumerate(ring)
+            for (idx_junction, (_x, _x_ofs)) in junctiongraph[v]
+                x = PeriodicVertex(_x, v_ofs + _x_ofs)
+                j = get(vs, x, 0)
+                j == 0 && continue
+                flag = true
+                if !isassigned(junctions_per_ring, k)
+                    junctions_per_ring[k] = Tuple{Int,Int,Int}[(idx_junction, minmax(i, j)...)]
+                else
+                    push!(junctions_per_ring[k], (idx_junction, minmax(i, j)...))
+                end
+                push!(ring_per_junctions[idx_junction], k)
+            end
+        end
+        flag && push!(rings_with_junctions, k)
+    end
+    return junctions, map(length, ring_per_junctions), junctions_per_ring, rings_with_junctions
 end
 
 function add_phantomedges!(erings::Vector{Vector{Int}}, rings::Vector{Vector{PeriodicVertex{D}}}, kp::EdgeDict{D}, new_rings_idx::Vector{Int}, junctions, jcounter, junctions_per_ring, rings_with_junctions) where D
