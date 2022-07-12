@@ -154,29 +154,37 @@ function ering_at_pos(tiling::Tiling{D}, (i, ofs)::PeriodicVertex{D}) where D
     return convert_to_ering(tiling.rings[i], tiling.kp, ofs)
 end
 
-function minimal_track!(gauss, tracks)
-    track = retrieve_track!(gauss)
-    #====================================================================#
-    # track[1], track[end] = track[end], track[1]
-    # return track
-    #====================================================================#
-    sort!(track)
+function minimal_track!(gauss, previous_tracks)
+    tracks = Vector{Int32}[sort!(retrieve_track!(gauss))]
+    _start_track = deepcopy(only(tracks))
     buffer = Int32[]
-    i = 1
-    while i < length(track)
-        j = track[i]
-        if isassigned(tracks, j%Int)
-            for t in tracks[j]
-                PeriodicGraphs.symdiff_cycles!(buffer, track, t)
-                if length(buffer) < length(track) # TODO: handle ≤ ?
-                    track, buffer = buffer, track
-                    break
+    idx = 1
+    is = Int[1]
+    while idx ≤ length(tracks)
+        track = tracks[idx]
+        i = is[idx]
+        while i < length(track)
+            j = track[i]
+            if isassigned(previous_tracks, j%Int)
+                for t in previous_tracks[j]
+                    PeriodicGraphs.symdiff_cycles!(buffer, track, t)
+                    if length(buffer) ≤ length(track)
+                        if length(buffer) == length(track)
+                            push!(tracks, copy(track))
+                            push!(is, i+1)
+                        end
+                        track, buffer = buffer, track
+                        break
+                    end
                 end
             end
+            i += 1
         end
-        i += 1
+        idx += 1
     end
-    return track
+    length(tracks) ≤ 2 && return tracks
+    sort!(tracks); unique!(tracks)
+    return tracks
 end
 
 """
@@ -197,19 +205,35 @@ function explore_around_cycle!(tac::TilingAroundCycle{D}, tiling::Tiling{D}, unt
         dist > maxdist && break
         restart += 1
         if gaussian_elimination!(tac.gauss, ering_at_pos(tiling, u)) # a sum of previously encountered rings is empty
-            track = minimal_track!(tac.gauss, tracks)
-            if first(track) == 1 # otherwise the tile does not contain the current cycle.
-                if untilfirstfound
-                    maxdist = dist
-                end
-                push!(tiles, sort!([first(Q[x]) for x in track]))
-            else
-                resize!(tracks, restart-1)
-                for i in track
-                    if isassigned(tracks, i%Int)
-                        push!(tracks[i], track)
-                    else
-                        tracks[i] = [track]
+            new_tracks = minimal_track!(tac.gauss, tracks)
+            # if first(Q[1][1]) == 9 && new_tracks == Vector{Int32}[[1, 2, 7, 9, 10, 13, 37, 41, 45, 64, 76, 78, 80, 84, 99, 240, 349, 382, 383, 395], [1, 2, 7, 9, 11, 13, 37, 39, 41, 45, 64, 76, 78, 80, 99, 240, 349, 382, 383, 395]]
+            #     # if first(normalize_cycle!(rt)) == PeriodicVertex3D[(6, (0,0,0)), (8, (0,0,0)), (9, (-1,1,0)), (10, (-1,1,0)), (11, (0,1,0)), (12, (0,1,0)), (13, (0,0,0)), (14, (0,0,0)), (23, (-1,0,0)), (24, (-1,0,0)), (27, (-1,1,0)), (30, (-1,0,0)), (45, (0,0,0)), (46, (0,1,0)), (48, (0,0,0)), (49, (-1,0,0)), (50, (0,1,0)), (52, (-1,1,0)), (54, (-1,0,0)), (54, (-1,1,0))]
+            #     @show length(new_tracks)
+            #     for track in new_tracks
+            #         @show sort!([first(Q[x]) for x in track])
+            #     end
+            #     # @show track
+            #     # @show [first(Q[x]) for x in track[[5,8]]]
+            #     # @show track[[5,8]]
+            #     # @show tracks[11]
+            #     # @show tracks[39]
+            # end
+
+            for track in new_tracks
+                if first(track) == 1 # otherwise the tile does not contain the current cycle.
+                    if untilfirstfound
+                        maxdist = dist
+                    end
+                    rt = sort!([first(Q[x]) for x in track])
+                    push!(tiles, rt)
+                else
+                    resize!(tracks, restart-1)
+                    for i in track
+                        if isassigned(tracks, i%Int)
+                            push!(tracks[i], track)
+                        else
+                            tracks[i] = [track]
+                        end
                     end
                 end
             end
