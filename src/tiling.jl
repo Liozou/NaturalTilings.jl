@@ -42,12 +42,12 @@ function neighboring_edges(_edges::Vector{Int}, vertices::Vector{PeriodicVertex{
     end
     sort!(returned_edges)
     unique!(returned_edges)
-    ret = Vector{Line{T}}(undef, length(returned_edges))
-    for (i, edge) in enumerate(returned_edges)
-        x1, x2 = tiling.kp[edge]
-        ret[i] = shortline(tiling.pge[x1], tiling.pge[x2])
-    end
-    return ret
+    return returned_edges
+end
+
+function lineof(e::Int, tiling)
+    x1, x2 = tiling.kp[e]
+    return shortline(tiling.pge[x1], tiling.pge[x2])
 end
 
 """
@@ -67,7 +67,13 @@ function canonical_tile!(tiling::Tiling{D}, tile::Vector{PeriodicVertex{D}}, che
     if idx == n
         uniquevertices = unique_vertices(normalized, tiling)
         if checkgeometry
-            for line in neighboring_edges(uniqueedges, uniquevertices, tiling)
+            for e in neighboring_edges(uniqueedges, uniquevertices, tiling)
+                line = lineof(e, tiling)
+                # tiling.kp[e] == (PeriodicVertex3D(1), PeriodicVertex3D(23)) && length(tile) == 20 && @show tile
+                # if tile == PeriodicVertex3D[(3, (0,0,0)), (4, (0,0,0)), (6, (1,0,0)), (8, (1,0,0)), (9, (0,1,0)), (10, (0,1,0)), (11, (1,1,0)), (12, (1,1,0)), (13, (1,0,0)), (14, (1,0,0)), (23, (0,0,0)), (24, (0,0,0)), (45, (1,0,0)), (46, (1,1,0)), (48, (1,0,0)), (49, (0,0,0)), (50, (1,1,0)), (52, (0,1,0)), (54, (0,0,0)), (54, (0,1,0))] && e == 8316
+                #     @show tiling.kp[e]
+                #     @show intersect_polyedra(tiling, line, normalized)
+                # end
                 if intersect_polyedra(tiling, line, normalized) ≥ 2 # invalid tile
                     print(intersect_polyedra(tiling, line, normalized))
                     delete!(tiling.tiledict, uniqueedges)
@@ -136,24 +142,18 @@ function tilingof(pge::PeriodicGraphEmbedding{D}, depth::Integer=10, symmetries:
     rings = Vector{PeriodicVertex{D}}[[reverse_hash_position(x, g) for x in r] for r in _rings]
 
     max_realedges = Int[]
-    # export_vtf("/tmp/g1.vtf", PeriodicGraphEmbedding(g, pge.pos, pge.cell), nothing, 3) # TODO: remove
+    # export_vtf("/tmp/sos_1.vtf", PeriodicGraphEmbedding(g, pge.pos, pge.cell), nothing, 5) # TODO: remove
 
     new_rings_idx = collect(1:length(rings))
-    junctions, jcounter, junctions_per_ring, keep = find_phantomedges(erings, rings, kp, nv(g), copy(new_rings_idx))
-    for (e, count) in zip(junctions, jcounter)
-        count == 3 && continue
-        add_edge!(g, e)
-    end
-    # export_vtf("/tmp/g2.vtf", PeriodicGraphEmbedding(g, pge.pos, pge.cell), nothing, 3) # TODO: remove
-    max_realedge = add_phantomedges!(erings, rings, kp, new_rings_idx, junctions, jcounter, junctions_per_ring, keep)
+    junctions, junctions_per_ring, keep = find_phantomedges(erings, rings, kp, nv(g), copy(new_rings_idx))
+    for e in junctions; add_edge!(g, e) end
+    # export_vtf("/tmp/sos_2.vtf", PeriodicGraphEmbedding(g, pge.pos, pge.cell), nothing, 5) # TODO: remove
+    max_realedge = add_phantomedges!(erings, rings, kp, new_rings_idx, junctions, junctions_per_ring, keep)
     while !iszero(max_realedge)
-        junctions, jcounter, junctions_per_ring, keep = find_phantomedges(erings, rings, kp, nv(g), copy(new_rings_idx))
-        for (e, count) in zip(junctions, jcounter)
-            count == 3 && continue
-            add_edge!(g, e)
-        end
-        # export_vtf("/tmp/g$max_realedge.vtf", PeriodicGraphEmbedding(g, pge.pos, pge.cell), nothing, 3) # TODO: remove
-        max_realedge = add_phantomedges!(erings, rings, kp, new_rings_idx, junctions, jcounter, junctions_per_ring, keep)
+        junctions, junctions_per_ring, keep = find_phantomedges(erings, rings, kp, nv(g), copy(new_rings_idx))
+        for e in junctions; add_edge!(g, e) end
+        # export_vtf("/tmp/sos_$max_realedge.vtf", PeriodicGraphEmbedding(g, pge.pos, pge.cell), nothing, 5) # TODO: remove
+        max_realedge = add_phantomedges!(erings, rings, kp, new_rings_idx, junctions, junctions_per_ring, keep)
         push!(max_realedges, max_realedge)
     end
 
@@ -176,15 +176,16 @@ function tilingof(pge::PeriodicGraphEmbedding{D}, depth::Integer=10, symmetries:
         new_rtiles = Vector{PeriodicVertex{D}}[] # each sublist is the list of rings of a tile
         for r in missing2tiles
             tac = exploration[r]
-            append!(new_rtiles, explore_around_cycle!(tac, tiling))
+            _new_rtiles = explore_around_cycle!(tac, tiling)
+            append!(new_rtiles, _new_rtiles)
         end
         isempty(new_rtiles) && continue
         sort!(new_rtiles; by=length)
         new_idx = length(tiling.tiles) + 1
         for rt in new_rtiles
-            tile_idx = add_rtile!(rt, etiles_gauss, known_htiles, tiling, m, checkgeometry)
+            tile_idx = add_rtile!(rt, etiles_gauss, known_htiles, tiling, m, stophere isa Bool ? (stophere || checkgeometry) : checkgeometry)
             if tile_idx < 0 # error occured: one ring joins 2 or more tiles
-                stophere isa Bool && (stophere = true; break)
+                stophere isa Bool && (stophere = checkgeometry = true; break)
                 empty!(new_rtiles)
                 break
             end
@@ -192,7 +193,7 @@ function tilingof(pge::PeriodicGraphEmbedding{D}, depth::Integer=10, symmetries:
                 num_tiles = tile_idx
                 for symm in symms
                     symmrt = [symm()] # FIXME: this part is invalid, try with any symmetry
-                    tile_idx2 = add_rtile!([symm(x) for x in rt], etiles_gauss, known_htiles, tiling, m, checkgeometry)
+                    tile_idx2 = add_rtile!([symm(x) for x in rt], etiles_gauss, known_htiles, tiling, m, stophere isa Bool ? (stophere || checkgeometry) : checkgeometry)
                     num_tiles = max(num_tiles, tile_idx2)
                 end
                 for tile in @view tiling.tiles[tile_idx:end]
@@ -202,24 +203,24 @@ function tilingof(pge::PeriodicGraphEmbedding{D}, depth::Integer=10, symmetries:
                 end
             end
         end
-        stophere isa Bool && stophere && break
+        stophere isa Bool && stophere && checkgeometry && break
 
         @assert num_tiles == length(tiling.tiles) || isempty(new_rtiles)
         if !isempty(new_rtiles)
             for i in new_idx:num_tiles
                 for (v, _) in tiling.tiles[i]
                     if tilecounter[v] == 2 # # error occured: one ring joins 2 or more tiles
-                        stophere isa Bool && (stophere = true; break)
+                        stophere isa Bool && (stophere = checkgeometry = true; break)
                         empty!(new_rtiles)
                         break
                     end
                     tilecounter[v] += 1
                 end
-                stophere isa Bool && stophere && break
+                stophere isa Bool && stophere && checkgeometry && break
                 isempty(new_rtiles) && break
             end
         end
-        stophere isa Bool && stophere && break
+        stophere isa Bool && stophere && checkgeometry && break
 
         if isempty(new_rtiles) # error occured: one ring joins 2 or more tiles
             empty!(tiling.tiles)
@@ -252,4 +253,4 @@ end
 tilingof(pge::PeriodicGraphEmbedding{D}, symmetries::AbstractSymmetryGroup, dist::DistanceRecord=DistanceRecord(pge.g,10)) where {D} = tilingof(pge, 10, symmetries, dist)
 
 # for debugging purpose # TODO: remove
-tilingof(pge::PeriodicGraphEmbedding, ::Bool) = tilingof(pge, 10, NoSymmetryGroup(pge.g), DistanceRecord(pge.g,10), false)
+tilingof(pge::PeriodicGraphEmbedding, debug::Bool) = tilingof(pge, 10, NoSymmetryGroup(pge.g), DistanceRecord(pge.g,10), debug)
