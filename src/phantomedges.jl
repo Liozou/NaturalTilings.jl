@@ -362,17 +362,13 @@ function add_phantomedges!(erings::Vector{Vector{Int}}, rings::Vector{Vector{Per
 end
 
 
-function explore_around_phantomedge!(tile::Vector{PeriodicVertex{D}}, start, tiling::Tiling{D}, max_realedge) where D
-    tiledict = Dict(i => Set{SVector{D,Int}}() for (i,_) in tile)
-    for (i, ofs) in tile
-        push!(tiledict[i], ofs)
-    end
+function explore_around_phantomedge!(tileofsdict, start::PeriodicVertex{D}, tiling::Tiling{D}, max_realedge) where D
     neighborindices = Vector{Tuple{Int,Int}}[]
-    Q = [tile[start]]
+    Q = [start]
     visited_rings = Set(Q)
     marked_edges = Dict{Int,Int}()
     for (i, (idx_ring, ofs_ring)) in enumerate(Q)
-        ring = tile.rings[idx_ring]
+        ring = tiling.rings[idx_ring]
         last_x = last(ring)
         neighboridx = [(0,0) for _ in 1:length(ring)]
         for (j, x) in enumerate(ring)
@@ -390,7 +386,7 @@ function explore_around_phantomedge!(tile::Vector{PeriodicVertex{D}}, start, til
             edge = PeriodicEdge{D}(xa, xb, ofsb - ofsa)
             flag = false
             for (idx2, ofs2) in tiling.ringsofedge[edge]
-                ofss = get(tiledict, idx2, nothing)
+                ofss = get(tileofsdict, idx2, nothing)
                 ofss isa Nothing && continue
                 idx2 == idx_ring && ofsa == ofs2 && continue
                 new_ofs = ofs_ring + ofsa - ofs2
@@ -410,29 +406,34 @@ function explore_around_phantomedge!(tile::Vector{PeriodicVertex{D}}, start, til
 end
 
 function remove_phantomedges(tiling::Tiling{D,T}, max_realedge::Int) where {D,T}
-    # removerings_list = Int[]
-    # removerings = zeros(Int, length(tiling.rings))
-    # actualedges = Tuple{PeriodicEdge{D},SVector{D,Int}}[]
-    # for (i, ering) in enumerate(tiling.erings)
-    #     for e in ering
-    #         removerings[e] == 0 || continue
-    #         if e > max_realedge
-    #             push!(removerings, i)
-    #             removerings[e] = length(removerings_list)
-    #             (x1, ofs1), (x2, ofs2) = kp[e]
-    #             push!(actualedges, (PeriodicEdge{D}(x1, x2, ofs2 .- ofs1), ofs1))
-    #             break
-    #         end
-    #     end
-    # end
-    # removerings[removerings_list] .= 1:length(removerings_list)
+    try_direct_tiling = true
+    new_rings = Vector{PeriodicVertex{D}}[]
+    new_erings = Vector{Int}[]
+    new_erings_dict = Dict{Vector{Int},Int}()
     for (i, tile) in enumerate(tiling.tiles)
         marked_edges .= 0
-        for start in 1:length(tile)
+        new_tile = PeriodicVertex{D}[]
+        tileofsdict = Dict(i => Set{SVector{D,Int}}() for (i,_) in tile)
+        for (i, ofs) in tile
+            push!(tileofsdict[i], ofs)
+        end
+        for start_ring in tile
             # for each ring of the cycle, find the largest set of rings of the tile
             # connected to it via phantom edges.
-            neighborindices, Q = explore_around_phantomedge!(tile, start, tiling, max_realedge)
-
+            neighborindices, Q = explore_around_phantomedge!(tileofsdict, start_ring, tiling, max_realedge)
+            if try_direct_tiling && length(Q) == 1
+                push!(new_tile, start_ring)
+            else
+                cring = collect_new_ring(Q, neighborindices, tiling)
+                if cring isa Nothing
+                    try_direct_tiling = false
+                else
+                    idx_cring = get(new_erings_dict, cring, length(new_erings)+1)
+                    if idx_cring > length(new_erings)
+                        push!(new_erings, cring)
+                    end
+                end
+            end
         end
     end
     
