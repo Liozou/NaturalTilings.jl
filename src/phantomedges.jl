@@ -297,14 +297,14 @@ function find_phantomedges(erings::Vector{Vector{Int}}, rings::Vector{Vector{Per
                 ofs_ear = canonical_ering!(buffer, kp)
                 i3 = get(known_erings, buffer, nothing)
                 _, i2, _, ofs_ref = find_ofs_ref(eri, _i2)
-                r2 = PeriodicGraphs.OffsetVertexIterator{D}(ofs_ref, rings[i2])
+                r2 = OffsetVertexIterator{D}(ofs_ref, rings[i2])
                 is = [i1, i2]
                 if i3 isa Nothing
                     possible_junction = identify_junction(r1, r2)
                     possible_junction isa Nothing && continue
                     junction, iabs = possible_junction
                 else
-                    r3 = PeriodicGraphs.OffsetVertexIterator{D}(ofs_ear, rings[i3])
+                    r3 = OffsetVertexIterator{D}(ofs_ear, rings[i3])
                     junction, iabs = identify_junction(r1, r2, r3)
                     push!(is, i3)
                 end
@@ -403,6 +403,34 @@ function explore_around_phantomedge!(tileofsdict, start::PeriodicVertex{D}, tili
         push!(neighborindices, neighboridx)
     end
     return neighborindices, Q
+end
+
+
+function _ofsvertex((i, ofs_ring)::PeriodicVertex{D}, j::Int, tiling::Tiling{D}, prev::Bool) where D
+    ring = tiling.rings[i]
+    v, ofs = prev ? ring[mod1(j-1, length(ring))] : ring[j]
+    PeriodicVertex{D}(v, ofs + ofs_ring)
+end
+
+function collect_new_ring(Q::Vector{PeriodicVertex{D}}, neighborindices::Vector{Vector{Tuple{Int,Int}}}, tiling::Tiling{D}) where D
+    start_i, start_j = ref_start = (0,0)
+    for (_i, neighboridx) in enumerate(neighborindices), (_j, x) in enumerate(neighboridx)
+        if first(x) != 0
+            start_i, start_j = ref_start = (_i, _j)
+            break
+        end
+    end
+    start_i == 0 && return nothing
+    start_ring_idx, start_ring_ofs = Q[start_i]
+    start_ring = OffsetVertexIterator{D}(start_ring_ofs, tiling.rings[start_ring_idx])
+    newring = [start_ring[j]]
+    i = start_i
+    j = mod1(start_j-1, length(start_ring))
+    while (i,j) != ref_start
+        k, l = neighborindices[i][j]
+
+    end
+    return newring
 end
 
 function remove_phantomedges(tiling::Tiling{D,T}, max_realedge::Int) where {D,T}

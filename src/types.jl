@@ -249,6 +249,6 @@ function explore_around_cycle!(tac::TilingAroundCycle{D}, tiling::Tiling{D}, unt
 end
 
 function unique_vertices(tile::Vector{PeriodicVertex{D}}, tiling::Tiling{D}) where D
-    doublevertices = reduce(vcat, PeriodicGraphs.OffsetVertexIterator{D}(ofs, tiling.rings[x]) for (x, ofs) in tile; init=PeriodicVertex{D}[])
+    doublevertices = reduce(vcat, OffsetVertexIterator{D}(ofs, tiling.rings[x]) for (x, ofs) in tile; init=PeriodicVertex{D}[])
     return unique!(sort!(doublevertices))
 end

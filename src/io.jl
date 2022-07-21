@@ -5,7 +5,7 @@ function export_tile(file, pge::PeriodicGraphEmbedding3D{T}, tiling::Tiling, rti
         file = file * ".vtf"
     end
     mkpath(splitdir(file)[1])
-    rings::Vector{PeriodicGraphs.OffsetVertexIterator{3}} = [PeriodicGraphs.OffsetVertexIterator{3}(ofs, tiling.rings[x]) for (x, ofs) in rtile]
+    rings::Vector{OffsetVertexIterator{3}} = [OffsetVertexIterator{3}(ofs, tiling.rings[x]) for (x, ofs) in rtile]
     vertices::Vector{PeriodicVertex3D} = unique!(sort!(reduce(vcat, rings; init=PeriodicVertex3D[])))
     centre = sum(pge.pos[x] .+ ofs for (x,ofs) in vertices) / length(vertices)
 
@@ -54,7 +54,7 @@ function export_tile(file, pge::PeriodicGraphEmbedding3D{T}, tiling::Tiling, rti
 end
 
 function export_tile(file, pge::PeriodicGraphEmbedding3D, tiling::Tiling{D}, (v,ofs)::PeriodicVertex{D}) where D
-    rtile = PeriodicGraphs.OffsetVertexIterator{D}(tiling.tiles[v], ofs)
+    rtile = OffsetVertexIterator{D}(tiling.tiles[v], ofs)
     export_tile(file, pge, tiling, rtile, v)
 end
 function export_tile(file, pge::PeriodicGraphEmbedding3D, tiling::Tiling, i::Integer)
