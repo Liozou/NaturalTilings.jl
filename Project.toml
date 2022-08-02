@@ -9,6 +9,7 @@ LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 PeriodicGraphEmbeddings = "f305370e-dc8e-427a-bb15-d3949eabeccf"
 PeriodicGraphs = "18c5b727-b240-4874-878a-f2e242435bab"
 StaticArrays = "90137ffa-7385-5640-81b9-e52037218182"
+Statistics = "10745b16-79ce-11e8-11f9-7d13ad32a3b2"
 
 [compat]
 Graphs = "1.3"

@@ -60,3 +60,17 @@ end
 function export_tile(file, pge::PeriodicGraphEmbedding3D, tiling::Tiling, i::Integer)
     export_tile(file, pge, tiling, tiling.tiles[i], i)
 end
+
+function export_block(file, pge::PeriodicGraphEmbedding3D, tiling::Tiling, tiles::AbstractVector{<:Integer})
+    mat = Float64.(pge.cell.mat)
+    open(file, "w") do f
+        println(f, length(tiles))
+        for i in tiles
+            μ = mat * mean(tiling.ringcenters[j] + ofs for (j, ofs) in tiling.tiles[i])
+            σ = mean(norm(mat * pge[x] - μ) for x in tiling.tilevertices[i])
+            a, b, c = μ
+            println(f, a, ' ', b, ' ', c, ' ', σ)
+        end
+    end
+    nothing
+end

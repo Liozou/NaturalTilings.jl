@@ -6,6 +6,7 @@ using PeriodicGraphs: EdgeDict, DistanceRecord, IterativeGaussianEliminationDeco
                       OffsetVertexIterator, convert_to_ering, gaussian_elimination!,
                       IterativeGaussianEliminationLength
 using LinearAlgebra: norm, dot
+using Statistics: mean
 
 include("types.jl")
 include("geometry.jl")
