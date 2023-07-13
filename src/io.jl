@@ -74,3 +74,22 @@ function export_block(file, pge::PeriodicGraphEmbedding3D, tiling::Tiling, tiles
     end
     nothing
 end
+
+function PeriodicGraphEmbeddings.export_cgd(file, tiling::Tiling{D}) where D
+    open(file, "w") do f
+        println(f, "TILING")
+        println(f, "  NAME ", splitext(basename(file))[1])
+        ((a, b, c), (α, β, γ)) = first(cell_parameters(tiling.pge.cell))
+        println(f, "  CELL ", a, ' ', b, ' ', c, ' ', α, ' ', β, ' ', γ)
+        println(f, "  FACES")
+        for face in tiling.rings
+            print(f, "    ", length(face))
+            for x in face
+                print(f, "  ")
+                join(f, tiling.pge[x], ' ')
+            end
+            println(f)
+        end
+        println(f, "END")
+    end
+end
